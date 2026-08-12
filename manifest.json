@@ -1,8 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Paramount 双语字幕",
-  "description": "为 Paramount+ 英文字幕提供实时简体中文翻译和悬停查词。",
-  "version": "0.4.0",
+  "default_locale": "en",
+  "name": "__MSG_extensionName__",
+  "short_name": "__MSG_extensionShortName__",
+  "description": "__MSG_extensionDescription__",
+  "version": "0.5.0",
   "minimum_chrome_version": "138",
   "icons": {
     "16": "assets/icons/icon-16.png",
@@ -11,7 +13,7 @@
     "128": "assets/icons/icon-128.png"
   },
   "action": {
-    "default_title": "Paramount 双语字幕",
+    "default_title": "__MSG_extensionActionTitle__",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "assets/icons/icon-16.png",
@@ -27,6 +29,7 @@
   ],
   "host_permissions": [
     "https://api.dictionaryapi.dev/*",
+    "http://127.0.0.1:8787/*",
     "https://translate.googleapis.com/*"
   ],
   "content_scripts": [
@@ -37,6 +40,7 @@
       ],
       "js": [
         "src/namespace.js",
+        "src/i18n.js",
         "src/settings.js",
         "src/cache.js",
         "src/translator.js",

@@ -1,5 +1,6 @@
 (() => {
   const PST = globalThis.ParamountSubtitles;
+  const t = (key, substitutions) => PST.t?.(key, substitutions) || key;
 
   const POS_LABELS = Object.freeze({
     noun: "n.", verb: "v.", adjective: "adj.", adverb: "adv.",
@@ -328,18 +329,18 @@
       this.shadow.innerHTML = `
         <style>${STYLES}</style>
         <div class="stage">
-          <div class="status" role="status" aria-live="polite" tabindex="0" title="拖动或方向键可调整位置，点击可隐藏">
+          <div class="status" role="status" aria-live="polite" tabindex="0">
             <span class="status__dot"></span>
             <span class="status__text"></span>
             <span class="status__progress"></span>
           </div>
-          <div class="tooltip" role="dialog" aria-label="单词释义"></div>
+          <div class="tooltip" role="dialog"></div>
           <div class="subtitles" aria-live="polite">
-            <button class="rewind-button" type="button" aria-label="回到上一句字幕" title="回到上一句字幕（快捷键 ←）" hidden>
-              <span class="rewind-button__label">上一句</span>
+            <button class="rewind-button" type="button" hidden>
+              <span class="rewind-button__label"></span>
               <kbd>←</kbd>
             </button>
-            <div class="caption-shell" role="group" aria-label="可移动双语字幕" tabindex="0" hidden title="拖动或方向键可调整位置，双击恢复默认位置">
+            <div class="caption-shell" role="group" tabindex="0" hidden>
               <p class="english" lang="en"></p>
               <p class="chinese" lang="zh-CN"></p>
             </div>
@@ -359,11 +360,14 @@
       this.lookupToken = 0;
       this.englishRenderKey = "";
       this.currentWordEntry = null;
+      this.currentCueText = "";
+      this.lookupContext = [];
       this.suppressStatusClickUntil = 0;
       this.lastStatus = { message: "", open: false };
       this.rewindFeedbackTimer = 0;
       this.subtitleHoverTimer = 0;
       this.subtitleHoverActive = false;
+      this.localizeStaticUi();
 
       for (const node of [this.captionShell, this.rewindButton, this.tooltip]) {
         node.addEventListener("mouseenter", () => this.enterSubtitleInteraction());
@@ -419,6 +423,8 @@
 
     updateSettings(settings) {
       this.settings = { ...this.settings, ...settings };
+      PST.setUiLanguage(this.settings.uiLanguage);
+      this.localizeStaticUi();
       this.host.dataset.disabled = String(!this.settings.enabled);
       this.host.dataset.mode = this.settings.mode;
       this.host.dataset.learningHints = String(Boolean(this.settings.learningHints));
@@ -427,6 +433,16 @@
       this.host.style.setProperty("--pst-bottom", `${this.settings.position}%`);
       this.applyPlacements();
       this.setStatus(this.lastStatus);
+    }
+
+    localizeStaticUi() {
+      this.statusNode?.setAttribute("title", t("moveStatusTitle"));
+      this.tooltip?.setAttribute("aria-label", t("wordDefinition"));
+      this.rewindButton?.setAttribute("aria-label", t("previousSubtitleAria"));
+      this.rewindButton?.setAttribute("title", t("previousSubtitleTitle"));
+      this.captionShell?.setAttribute("aria-label", t("movableBilingualSubtitles"));
+      this.captionShell?.setAttribute("title", t("movableSubtitleTitle"));
+      if (this.rewindLabel && !this.rewindFeedbackTimer) this.rewindLabel.textContent = t("previousSubtitle");
     }
 
     applyPlacements() {
@@ -546,6 +562,11 @@
     setCue(cue) {
       const english = PST.normalizeSubtitle(cue?.text);
       const chinese = PST.normalizeSubtitle(cue?.translation);
+      this.currentCueText = english;
+      this.lookupContext = (Array.isArray(cue?.context) ? cue.context : [])
+        .map((line) => PST.normalizeSubtitle(line))
+        .filter(Boolean)
+        .slice(-4);
       const hasCue = Boolean(english || chinese);
       const renderKey = `${english}\u0000${Boolean(this.settings.hoverDictionary)}`;
       if (renderKey !== this.englishRenderKey) {
@@ -600,14 +621,14 @@
     showRewindResult(result) {
       clearTimeout(this.rewindFeedbackTimer);
       if (!result?.ok) {
-        this.rewindLabel.textContent = result?.error || "暂时无法回退";
+        this.rewindLabel.textContent = result?.error || t("cannotRewind");
       } else if (result.usedCue) {
-        this.rewindLabel.textContent = "已回到上一句";
+        this.rewindLabel.textContent = t("rewoundPrevious");
       } else {
-        this.rewindLabel.textContent = `已回退 ${Math.max(1, Math.round(result.secondsBack || 0))} 秒`;
+        this.rewindLabel.textContent = t("rewoundSeconds", Math.max(1, Math.round(result.secondsBack || 0)));
       }
       this.rewindFeedbackTimer = setTimeout(() => {
-        this.rewindLabel.textContent = "上一句";
+        this.rewindLabel.textContent = t("previousSubtitle");
       }, 1400);
     }
 
@@ -689,22 +710,25 @@
       this.currentWordEntry = null;
       this.tooltip.innerHTML = `
         <p class="tooltip__word">${PST.escapeHtml(original)}</p>
-        <p class="tooltip__phonetic">正在查询…</p>
+        <p class="tooltip__phonetic">${PST.escapeHtml(t("lookingUp"))}</p>
       `;
       this.positionTooltip(wordNode);
       this.tooltip.dataset.open = "true";
 
-      const entry = await this.dictionary.lookup(original, this.settings);
+      const entry = await this.dictionary.lookup(original, this.settings, {
+        sentence: this.currentCueText,
+        context: this.lookupContext,
+      });
       if (token !== this.lookupToken || !entry) return;
       this.currentWordEntry = entry;
       const pos = POS_LABELS[entry.partOfSpeech] || entry.partOfSpeech || "word";
       this.tooltip.innerHTML = `
-        <p class="tooltip__word">${PST.escapeHtml(entry.lemma)}</p>
-        <p class="tooltip__phonetic">${PST.escapeHtml(entry.phonetic || "暂无音标")}</p>
+        <p class="tooltip__word">${PST.escapeHtml(entry.phrase || entry.lemma)}</p>
+        <p class="tooltip__phonetic">${PST.escapeHtml(entry.phonetic || t("noPhonetic"))}</p>
         <p class="tooltip__meaning">${PST.escapeHtml(pos)} ${PST.escapeHtml(entry.gloss || entry.lemma)}</p>
-        <p class="tooltip__lemma">原形 ${PST.escapeHtml(entry.lemma)}${entry.original !== entry.lemma ? ` · 当前 ${PST.escapeHtml(entry.original)}` : ""}</p>
+        <p class="tooltip__lemma">${PST.escapeHtml(t("baseForm", entry.lemma))}${entry.original !== entry.lemma ? ` · ${PST.escapeHtml(t("currentForm", entry.original))}` : ""}</p>
         ${entry.definition ? `<p class="tooltip__definition">${PST.escapeHtml(entry.definition)}</p>` : ""}
-        <button class="tooltip__action" type="button" data-add-word data-state="idle" aria-live="polite">＋ 加入生词</button>
+        <button class="tooltip__action" type="button" data-add-word data-state="idle" aria-live="polite">${PST.escapeHtml(t("addToWordBank"))}</button>
       `;
       this.positionTooltip(wordNode);
     }
@@ -716,10 +740,10 @@
       action.dataset.state = state;
       action.disabled = state === "pending" || state === "success";
       action.title = state === "error" ? error : "";
-      if (state === "pending") action.textContent = "正在加入…";
-      else if (state === "success") action.textContent = "✓ 已加入生词";
-      else if (state === "error") action.textContent = "加入失败，点击重试";
-      else action.textContent = "＋ 加入生词";
+      if (state === "pending") action.textContent = t("addingWord");
+      else if (state === "success") action.textContent = t("addedWord");
+      else if (state === "error") action.textContent = t("retryAddWord");
+      else action.textContent = t("addToWordBank");
     }
 
     positionTooltip(wordNode) {

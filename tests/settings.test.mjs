@@ -27,6 +27,8 @@ test("hides the running status overlay by default", async () => {
   await store.ready;
 
   assert.equal(store.value.debugToast, false);
+  assert.equal(store.value.uiLanguage, "en");
+  assert.deepEqual([...store.value.learningLevels], ["c1", "c2"]);
 });
 
 test("skips stale storage APIs when the extension context has no runtime id", async () => {

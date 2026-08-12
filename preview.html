@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>字幕叠层预览</title>
+    <title data-i18n="previewTitle">Subtitle overlay preview</title>
     <link rel="stylesheet" href="preview.css">
   </head>
   <body>
-    <main class="mock-video" aria-label="字幕叠层设计预览">
+    <main class="mock-video" aria-label="Subtitle overlay design preview" data-i18n-aria-label="previewAria">
       <div class="mock-video__scene" aria-hidden="true">
         <span class="window window--one"></span>
         <span class="window window--two"></span>
@@ -17,6 +17,7 @@
       </div>
     </main>
     <script src="src/namespace.js"></script>
+    <script src="src/i18n.js"></script>
     <script src="src/settings.js"></script>
     <script src="src/overlay.js?v=6"></script>
     <script src="src/capture.js"></script>

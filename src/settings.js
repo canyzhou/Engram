@@ -2,6 +2,7 @@
   const PST = globalThis.ParamountSubtitles;
 
   const DEFAULTS = Object.freeze({
+    uiLanguage: "en",
     enabled: true,
     mode: "bilingual",
     sourceLanguage: "en",
@@ -12,6 +13,7 @@
     position: 13,
     rewindSeconds: 5,
     learningHints: false,
+    learningLevels: ["c1", "c2"],
     hoverDictionary: true,
     hideNative: true,
     debugToast: false,

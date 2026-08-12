@@ -47,6 +47,8 @@ button, select { color: inherit; }
   gap: 12px;
 }
 
+.app-header__brand { min-width: 0; }
+
 .app-header h1 {
   margin: 0;
   overflow: hidden;
@@ -59,26 +61,21 @@ button, select { color: inherit; }
 }
 
 .brand-mark {
-  position: relative;
-  display: flex;
   width: 38px;
   height: 38px;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  border: 2px dashed var(--accent);
-  border-radius: 50%;
+  border-radius: 10px;
 }
 
-.wave {
-  display: block;
-  width: 3px;
-  border-radius: 3px;
-  background: var(--accent);
+.app-header__brand p {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 560;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.wave--1, .wave--5 { height: 8px; }
-.wave--2, .wave--4 { height: 16px; }
-.wave--3 { height: 23px; }
 
 .icon-button {
   display: grid;
@@ -282,6 +279,33 @@ button, select { color: inherit; }
   margin-top: 3px;
   color: #fff2c6;
 }
+.learning-row__details {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  align-self: stretch;
+  padding: 0 12px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.learning-row__details:hover small, .learning-row__details:focus-visible small { color: #c3d0de; }
+.learning-row__details:focus-visible { border-radius: 6px; outline: 2px solid #7fa8d3; outline-offset: 2px; }
+.learning-row__details > span { min-width: 0; }
+.learning-row__details > svg {
+  width: 17px;
+  flex: 0 0 17px;
+  fill: none;
+  stroke: #7189a4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+.learning-row--featured > .switch { flex: 0 0 auto; }
 .learning-row--featured em {
   display: inline-block;
   margin-left: 5px;
@@ -296,7 +320,7 @@ button, select { color: inherit; }
   line-height: 1;
   vertical-align: 1px;
 }
-.learning-row[aria-disabled="true"] > span:first-child { opacity: 0.48; }
+.learning-row[aria-disabled="true"] .learning-row__details { opacity: 0.48; }
 .learning-row small {
   display: block;
   margin-top: 3px;

@@ -4,7 +4,8 @@
 # Local environment and secrets
 .env
 .env.*
-!.env.example
+.dev.vars
+.dev.vars.*
 *.pem
 *.key
 
@@ -13,10 +14,10 @@ node_modules/
 dist/
 build/
 coverage/
+.wrangler/
 
 # Logs and editor files
 *.log
 .idea/
 .vscode/
 *.swp
-

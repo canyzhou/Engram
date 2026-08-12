@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "paramount-subtitle-translation-proxy",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-08-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "keep_vars": true,
+  "secrets": {
+    "required": ["DEEPSEEK_API_KEY"]
+  },
+  "ratelimits": [
+    {
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "731091",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ]
+}

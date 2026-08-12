@@ -1,5 +1,7 @@
 (() => {
+  const PST = globalThis.ParamountSubtitles;
   const DEFAULTS = {
+    uiLanguage: "en",
     enabled: true,
     mode: "bilingual",
     engine: "local",
@@ -8,6 +10,7 @@
     position: 13,
     rewindSeconds: 5,
     learningHints: false,
+    learningLevels: ["c1", "c2"],
     hoverDictionary: true,
     debugToast: false,
     captionPlacement: null,
@@ -16,6 +19,7 @@
 
   const elements = {
     enabled: document.querySelector("#enabled"),
+    uiLanguage: document.querySelector("#ui-language"),
     modeButtons: [...document.querySelectorAll("[data-mode]")],
     engine: document.querySelector("#engine"),
     engineNote: document.querySelector("#engine-note"),
@@ -30,6 +34,8 @@
     rewindDecrease: document.querySelector("#rewind-decrease"),
     rewindIncrease: document.querySelector("#rewind-increase"),
     learningHints: document.querySelector("#learning-hints"),
+    learningSummary: document.querySelector("#learning-summary"),
+    openLearningSettings: document.querySelector("#open-learning-settings"),
     hoverDictionary: document.querySelector("#hover-dictionary"),
     debugToast: document.querySelector("#debug-toast"),
     resetPlacements: document.querySelector("#reset-placements"),
@@ -44,6 +50,18 @@
   let settings = { ...DEFAULTS };
   let activeTabId = null;
   const hasExtensionApi = Boolean(globalThis.chrome?.runtime?.id && chrome.storage?.sync);
+  const t = (key, substitutions) => PST.t(key, substitutions);
+  const LEARNING_LEVEL_KEYS = Object.freeze({
+    b1: "levelIntermediate",
+    b2: "levelUpperIntermediate",
+    c1: "levelAdvanced",
+    c2: "levelMastery",
+  });
+
+  const selectedLearningLevels = () => {
+    const levels = Array.isArray(settings.learningLevels) ? settings.learningLevels : DEFAULTS.learningLevels;
+    return levels.filter((level) => LEARNING_LEVEL_KEYS[level]);
+  };
 
   const storageGet = async () => {
     if (hasExtensionApi) return chrome.storage.sync.get(DEFAULTS);
@@ -57,6 +75,9 @@
   };
 
   const render = () => {
+    PST.setUiLanguage(settings.uiLanguage);
+    PST.applyI18n();
+    elements.uiLanguage.value = PST.getUiLanguage();
     elements.enabled.checked = settings.enabled;
     elements.modeButtons.forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.mode === settings.mode));
@@ -64,19 +85,25 @@
     });
     elements.engine.value = settings.engine;
     elements.engine.disabled = !settings.enabled;
-    elements.engineNote.textContent = settings.engine === "local"
-      ? "字幕留在设备上；首次播放交互时自动准备语言包。"
-      : "当前字幕会发送到 Google；仅建议个人临时使用。";
+    elements.engineNote.textContent = {
+      local: t("engineNoteLocal"),
+      deepseek: t("engineNoteDeepseek"),
+      google: t("engineNoteGoogle"),
+    }[settings.engine] || "";
     elements.fontSize.textContent = String(settings.fontSize);
     elements.background.value = String(settings.backgroundOpacity);
     elements.backgroundValue.textContent = `${Math.round(settings.backgroundOpacity * 100)}%`;
-    elements.rewindSeconds.textContent = `${settings.rewindSeconds}秒`;
+    elements.rewindSeconds.textContent = t("secondsShort", settings.rewindSeconds);
     elements.learningHints.checked = settings.learningHints;
     elements.learningHints.disabled = !settings.enabled || settings.mode === "chinese";
-    elements.learningHints.closest("label").setAttribute(
+    elements.learningHints.closest(".learning-row").setAttribute(
       "aria-disabled",
       String(!settings.enabled || settings.mode === "chinese"),
     );
+    const levelLabels = selectedLearningLevels().map((level) => t(LEARNING_LEVEL_KEYS[level]));
+    elements.learningSummary.textContent = levelLabels.length
+      ? t("highlightLevels", levelLabels.join(PST.getUiLanguage() === "zh-CN" ? "、" : ", "))
+      : t("noHighlightLevels");
     elements.hoverDictionary.checked = settings.hoverDictionary;
     elements.debugToast.checked = settings.debugToast;
   };
@@ -97,7 +124,7 @@
   const connect = async () => {
     if (!hasExtensionApi) {
       elements.connection.dataset.state = "connected";
-      elements.connectionText.textContent = "设计预览 · Paramount+";
+      elements.connectionText.textContent = t("previewConnection");
       return;
     }
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -105,16 +132,20 @@
     const isParamount = /^https:\/\/(?:www\.)?paramountplus\.com\//.test(tab?.url || "");
     if (!isParamount) {
       elements.connection.dataset.state = "disconnected";
-      elements.connectionText.textContent = "请打开 Paramount+ 播放页面";
+      elements.connectionText.textContent = t("openParamount");
       return;
     }
     const response = await sendToTab({ type: "GET_STATUS" });
     elements.connection.dataset.state = response?.ok ? "connected" : "checking";
     elements.connectionText.textContent = response?.ok
-      ? `已连接到 Paramount+ · ${response.capture?.source || "等待字幕"}`
-      : "已打开 Paramount+，正在等待播放器";
+      ? t("connectedParamount", response.capture?.source || t("waitingForSubtitles"))
+      : t("waitingForPlayer");
   };
 
+  elements.uiLanguage.addEventListener("change", async () => {
+    await update({ uiLanguage: elements.uiLanguage.value });
+    await connect();
+  });
   elements.enabled.addEventListener("change", () => update({ enabled: elements.enabled.checked }));
   elements.modeButtons.forEach((button) => button.addEventListener("click", () => update({ mode: button.dataset.mode })));
   elements.engine.addEventListener("change", () => update({ engine: elements.engine.value }));
@@ -136,6 +167,10 @@
     rewindSeconds: Math.min(15, settings.rewindSeconds + 1),
   }));
   elements.learningHints.addEventListener("change", () => update({ learningHints: elements.learningHints.checked }));
+  elements.openLearningSettings.addEventListener("click", () => {
+    if (hasExtensionApi) chrome.tabs.create({ url: chrome.runtime.getURL("learning-settings.html") });
+    else window.open("learning-settings.html", "_blank");
+  });
   elements.hoverDictionary.addEventListener("change", () => update({ hoverDictionary: elements.hoverDictionary.checked }));
   elements.debugToast.addEventListener("change", () => update({ debugToast: elements.debugToast.checked }));
   elements.resetPlacements.addEventListener("click", () => update({

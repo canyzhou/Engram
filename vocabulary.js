@@ -1,5 +1,7 @@
 (() => {
+  const PST = globalThis.ParamountSubtitles;
   const hasExtensionApi = Boolean(globalThis.chrome?.runtime?.id && chrome.storage?.local);
+  const hasSyncStorage = Boolean(globalThis.chrome?.runtime?.id && chrome.storage?.sync);
   const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
   const SAMPLE_WORDS = [
     {
@@ -58,6 +60,14 @@
   let words = [];
   let deletedEntry = null;
   let toastTimer = 0;
+  let uiLanguage = "en";
+  const t = (key, substitutions) => PST.t(key, substitutions);
+
+  const readUiLanguage = async () => {
+    if (hasSyncStorage) return (await chrome.storage.sync.get({ uiLanguage: "en" })).uiLanguage;
+    try { return JSON.parse(localStorage.getItem("pst-preview-settings") || "{}").uiLanguage || "en"; }
+    catch { return "en"; }
+  };
 
   const readWords = async () => {
     if (hasExtensionApi) {
@@ -77,8 +87,8 @@
   const formatDate = (value) => {
     const date = new Date(Number(value) || Date.now());
     const today = new Date();
-    if (date.toDateString() === today.toDateString()) return "今天";
-    return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(date);
+    if (date.toDateString() === today.toDateString()) return t("today");
+    return new Intl.DateTimeFormat(uiLanguage, { month: "short", day: "numeric" }).format(date);
   };
 
   const icon = (path) => {
@@ -101,18 +111,18 @@
     const wordLine = document.createElement("div");
     wordLine.className = "word-card__word-line";
     const title = document.createElement("h3");
-    title.textContent = entry.lemma || entry.original || "未知单词";
+    title.textContent = entry.lemma || entry.original || t("unknownWord");
     const speak = document.createElement("button");
     speak.className = "speak-button";
     speak.type = "button";
-    speak.setAttribute("aria-label", `朗读 ${title.textContent}`);
+    speak.setAttribute("aria-label", t("pronounceWord", title.textContent));
     speak.append(icon("M5 10v4h3l4 3V7l-4 3H5Zm10-1.5a5 5 0 0 1 0 7M17.5 6a8.5 8.5 0 0 1 0 12"));
     speak.addEventListener("click", () => speakWord(title.textContent));
     wordLine.append(title, speak);
 
     const phonetic = document.createElement("p");
     phonetic.className = "word-card__phonetic";
-    phonetic.textContent = entry.phonetic || "暂无音标";
+    phonetic.textContent = entry.phonetic || t("noPhonetic");
     const meta = document.createElement("div");
     meta.className = "word-card__meta";
     const pos = document.createElement("span");
@@ -129,13 +139,13 @@
     meaning.className = "word-card__meaning";
     const gloss = document.createElement("p");
     gloss.className = "word-card__gloss";
-    gloss.textContent = entry.gloss || "暂无中文释义";
+    gloss.textContent = entry.gloss || t("noChineseMeaning");
     const definition = document.createElement("p");
     definition.className = "word-card__definition";
-    definition.textContent = entry.definition || "暂无英文释义";
+    definition.textContent = entry.definition || t("noEnglishDefinition");
     const sentence = document.createElement("p");
     sentence.className = "word-card__sentence";
-    sentence.textContent = entry.sentence ? `“${entry.sentence}”` : "暂无字幕原句";
+    sentence.textContent = entry.sentence ? `“${entry.sentence}”` : t("noSubtitleContext");
     meaning.append(gloss, definition, sentence);
 
     const actions = document.createElement("div");
@@ -143,7 +153,7 @@
     const remove = document.createElement("button");
     remove.className = "delete-button";
     remove.type = "button";
-    remove.setAttribute("aria-label", `删除 ${title.textContent}`);
+    remove.setAttribute("aria-label", t("deleteWord", title.textContent));
     remove.append(icon("M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"));
     remove.addEventListener("click", () => deleteWord(entry));
     actions.append(remove);
@@ -178,17 +188,17 @@
     elements.totalCount.textContent = String(words.length);
     elements.weekCount.textContent = String(words.filter((entry) => now - (Number(entry.addedAt) || 0) <= WEEK_MS).length);
     elements.recentWord.textContent = ordered[0]?.lemma || ordered[0]?.original || "—";
-    elements.resultSummary.textContent = hasQuery ? `找到 ${visible.length} 个结果` : `${visible.length} 个单词`;
+    elements.resultSummary.textContent = hasQuery ? t("resultCount", visible.length) : t("wordCount", visible.length);
     elements.clearSearch.hidden = !hasQuery;
     elements.exportCsv.disabled = words.length === 0;
     elements.clearAll.disabled = words.length === 0;
     elements.list.replaceChildren(...visible.map(createCard));
     elements.list.hidden = visible.length === 0;
     elements.empty.hidden = visible.length > 0;
-    elements.emptyTitle.textContent = hasQuery ? "没有匹配的单词" : "还没有收藏单词";
+    elements.emptyTitle.textContent = hasQuery ? t("noMatchingWords") : t("noSavedWords");
     elements.emptyCopy.textContent = hasQuery
-      ? "试试搜索英文原词、中文释义或字幕原句。"
-      : "观看 Paramount+ 时，把鼠标悬停在英文字幕上，然后点击“加入生词”。";
+      ? t("emptySearch")
+      : t("emptyWordBank");
   };
 
   const showToast = (message, action = null) => {
@@ -218,14 +228,14 @@
     deletedEntry = { entry, index };
     await writeWords(words.filter((item) => item !== entry));
     render();
-    showToast(`已删除 ${entry.lemma || entry.original}`, async () => {
+    showToast(t("deletedWord", entry.lemma || entry.original), async () => {
       if (!deletedEntry) return;
       const restored = [...words];
       restored.splice(Math.min(deletedEntry.index, restored.length), 0, deletedEntry.entry);
       await writeWords(restored);
       deletedEntry = null;
       render();
-      showToast("已撤销删除");
+      showToast(t("deletionUndone"));
     });
   };
 
@@ -246,10 +256,10 @@
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = `paramount-vocabulary-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `engram-word-bank-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast(`已导出 ${words.length} 个单词`);
+    showToast(t("exportedWords", words.length));
   };
 
   elements.search.addEventListener("input", render);
@@ -265,7 +275,7 @@
     if (elements.dialog.returnValue !== "confirm") return;
     await writeWords([]);
     render();
-    showToast("单词本已清空");
+    showToast(t("wordBankCleared"));
   });
 
   if (hasExtensionApi) {
@@ -276,7 +286,9 @@
     });
   }
 
-  readWords().then((storedWords) => {
+  Promise.all([readWords(), readUiLanguage()]).then(([storedWords, storedLanguage]) => {
+    uiLanguage = PST.setUiLanguage(storedLanguage);
+    PST.applyI18n();
     words = storedWords;
     render();
   });

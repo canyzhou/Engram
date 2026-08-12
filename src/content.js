@@ -3,6 +3,7 @@
   globalThis.__PARAMOUNT_SUBTITLE_CONTENT__ = true;
 
   const PST = globalThis.ParamountSubtitles;
+  const t = (key, substitutions) => PST.t?.(key, substitutions) || key;
   const settingsStore = new PST.SettingsStore();
   const cache = new PST.TranslationCache();
   const translator = new PST.SubtitleTranslator(cache);
@@ -11,7 +12,9 @@
   const capture = new PST.CaptureCoordinator();
   let settings = { ...PST.DEFAULT_SETTINGS };
   let cueToken = 0;
-  let currentCue = { text: "", translation: "", source: "", wordHints: [] };
+  let currentCue = { text: "", translation: "", source: "", context: [], wordHints: [] };
+  const cueHistory = [];
+  let lastContextTime = null;
   let preparingFromInteraction = false;
 
   const mount = () => {
@@ -22,9 +25,13 @@
   };
 
   const statusMessage = () => {
-    const source = capture.lastCue.source || "字幕探针";
-    const engine = settings.engine === "google" ? "Google 备用翻译" : "Chrome 本地翻译";
-    return `已捕获 ${source} · ${engine}`;
+    const source = capture.lastCue.source || t("subtitleProbe");
+    const engine = {
+      deepseek: "DeepSeek V4 Flash",
+      google: t("googleTranslation"),
+      local: t("chromeLocalTranslation"),
+    }[settings.engine] || t("chromeLocalTranslation");
+    return t("capturedStatus", [source, engine]);
   };
 
   const renderTranslatorStatus = (state) => {
@@ -36,7 +43,11 @@
       overlay.setStatus({ message: "", open: false });
       return;
     }
-    if (settings.engine === "google") {
+    if (["deepseek", "google"].includes(settings.engine)) {
+      if (state.engine === settings.engine && state.state === "translating") {
+        overlay.setStatus({ message: state.message, tone: "warn", open: settings.debugToast });
+        return;
+      }
       overlay.setStatus({ message: statusMessage(), tone: "ok", open: settings.debugToast });
       return;
     }
@@ -44,7 +55,7 @@
       overlay.setStatus({ message: statusMessage(), tone: "ok", open: settings.debugToast });
     } else if (["downloadable", "unavailable"].includes(state.state)) {
       overlay.setStatus({
-        message: state.state === "unavailable" ? state.message : "播放时自动准备本地翻译",
+        message: state.state === "unavailable" ? state.message : t("prepareOnPlayback"),
         tone: state.state === "unavailable" ? "error" : "warn",
         actionable: state.state !== "unavailable",
         open: true,
@@ -57,8 +68,13 @@
   };
 
   const loadLearningHints = async (token, text, settingsSnapshot) => {
-    const difficultWords = PST.selectDifficultWords(text, 3);
+    const difficultWords = PST.selectDifficultWords(text, {
+      levels: settingsSnapshot.learningLevels,
+      limit: 3,
+    });
     if (!difficultWords.length) return;
+    // Automatic learning hints keep using the lightweight dictionary path.
+    // Contextual LLM lookup is reserved for an explicit word hover.
     const entries = await dictionary.lookupMany(difficultWords, settingsSnapshot);
     if (token !== cueToken) return;
     currentCue = { ...currentCue, wordHints: entries };
@@ -68,7 +84,27 @@
 
   const handleCue = async (cue) => {
     const token = ++cueToken;
-    currentCue = { text: cue.text, translation: "", source: cue.source, wordHints: [] };
+    const cleanText = PST.normalizeSubtitle(cue.text);
+    const cueTime = Number.isFinite(cue.startTime)
+      ? cue.startTime
+      : Number.isFinite(cue.start)
+        ? cue.start
+        : Number.isFinite(cue.videoTime)
+          ? cue.videoTime
+          : null;
+    if (
+      cueTime !== null
+      && lastContextTime !== null
+      && (cueTime < lastContextTime - 1 || cueTime > lastContextTime + 45)
+    ) cueHistory.length = 0;
+    if (cueTime !== null) lastContextTime = cueTime;
+    const repeatedCurrentCue = cleanText && cueHistory.at(-1) === cleanText;
+    const context = (repeatedCurrentCue ? cueHistory.slice(0, -1) : cueHistory).slice(-4);
+    if (cleanText && !repeatedCurrentCue) {
+      cueHistory.push(cleanText);
+      if (cueHistory.length > 12) cueHistory.splice(0, cueHistory.length - 12);
+    }
+    currentCue = { text: cue.text, translation: "", source: cue.source, context, wordHints: [] };
     if (!settings.enabled || !cue.text) {
       overlay.clearCue();
       return;
@@ -82,7 +118,7 @@
     if (settings.mode === "english") return;
 
     try {
-      const translation = await translator.translate(cue.text, settings);
+      const translation = await translator.translate(cue.text, settings, { context });
       if (token !== cueToken) return;
       currentCue = { ...currentCue, translation };
       overlay.setCue(currentCue);
@@ -91,14 +127,14 @@
       if (token !== cueToken) return;
       if (error?.code === "NEEDS_ACTIVATION") {
         overlay.setStatus({
-          message: "播放时自动准备本地翻译",
+          message: t("prepareOnPlayback"),
           tone: "warn",
           actionable: true,
           open: true,
         });
       } else {
         overlay.setStatus({
-          message: error?.message || "字幕翻译失败",
+          message: error?.message || t("subtitleTranslationFailed"),
           tone: "error",
           open: true,
         });
@@ -108,6 +144,8 @@
 
   settingsStore.subscribe((nextSettings) => {
     settings = { ...nextSettings };
+    PST.setUiLanguage(settings.uiLanguage);
+    translator.localizeStatus?.();
     overlay.updateSettings(settings);
     capture.configure({
       enabled: settings.enabled,
@@ -164,7 +202,9 @@
     event.stopPropagation();
     rewindPreviousCue();
   }, { capture: true });
-  settingsStore.ready.then(() => translator.inspectLocal());
+  settingsStore.ready.then(() => {
+    if (settings.engine === "local") translator.inspectLocal();
+  });
 
   overlay.addEventListener("cue:previous", rewindPreviousCue);
   overlay.addEventListener("playback:hover", (event) => {
@@ -175,7 +215,7 @@
       await translator.prepareLocal();
       if (currentCue.text) handleCue({ text: currentCue.text, source: currentCue.source });
     } catch (error) {
-      overlay.setStatus({ message: error?.message || "本地翻译准备失败", tone: "error", open: true });
+      overlay.setStatus({ message: error?.message || t("localTranslationPrepareFailed"), tone: "error", open: true });
     }
   });
   overlay.addEventListener("status:dismiss", () => settingsStore.update({ debugToast: false }));
@@ -186,17 +226,17 @@
   overlay.addEventListener("vocabulary:add", async (event) => {
     const lemma = event.detail?.lemma;
     try {
-      if (!chrome.storage?.local) throw new Error("存储不可用");
+      if (!chrome.storage?.local) throw new Error(t("storageUnavailable"));
       const { vocabulary = [] } = await chrome.storage.local.get({ vocabulary: [] });
       const entry = { ...event.detail, sentence: currentCue.text, addedAt: Date.now() };
       const next = [entry, ...vocabulary.filter((item) => item.lemma !== entry.lemma)].slice(0, 500);
       await chrome.storage.local.set({ vocabulary: next });
       overlay.showVocabularyResult({ state: "success", lemma });
-      overlay.setStatus({ message: `已加入生词：${entry.lemma}`, tone: "ok", open: true });
+      overlay.setStatus({ message: t("wordAddedStatus", entry.lemma), tone: "ok", open: true });
     } catch (error) {
-      const message = error?.message || "请稍后重试";
+      const message = error?.message || t("tryAgainLater");
       overlay.showVocabularyResult({ state: "error", lemma, error: message });
-      overlay.setStatus({ message: `加入生词失败：${message}`, tone: "error", open: true });
+      overlay.setStatus({ message: t("addWordFailedStatus", message), tone: "error", open: true });
     }
   });
 

@@ -1,16 +1,21 @@
 (() => {
   const PST = globalThis.ParamountSubtitles;
+  const previewLanguage = new URLSearchParams(location.search).get("lang") || "en";
+  PST.setUiLanguage(previewLanguage);
+  PST.applyI18n();
   const dictionary = {
     async lookup(word) {
       const lower = word.toLowerCase();
-      if (lower === "idols") {
+      if (lower === "ambiguous") {
         return {
-          original: "idols",
-          lemma: "idol",
-          phonetic: "/ˈaɪdl/",
-          partOfSpeech: "noun",
-          gloss: "偶像；崇拜对象",
-          definition: "a person or thing that is greatly admired",
+          original: "ambiguous",
+          lemma: "ambiguous",
+          phrase: "deliberately ambiguous",
+          phonetic: "/æmˈbɪɡjuəs/",
+          partOfSpeech: "adjective",
+          gloss: "故意说得模棱两可",
+          definition: "Intentionally open to more than one interpretation.",
+          contextual: true,
         };
       }
       return {
@@ -54,13 +59,13 @@
     learningHints: true,
   });
   overlay.setCue({
-    text: "I want to, like, run around, find idols.",
+    text: "His explanation remained deliberately ambiguous.",
     translation: "",
-    wordHints: [{ original: "idols", gloss: "偶像；崇拜对象" }],
+    wordHints: [{ original: "ambiguous", gloss: "模棱两可的；含糊的" }],
     source: "WebVTT",
   });
   overlay.setStatus({
-    message: "已捕获 WebVTT · 高难词辅助",
+    message: PST.t("capturedStatus", ["WebVTT", PST.t("difficultWordHints")]),
     tone: "ok",
     open: true,
   });
@@ -81,7 +86,7 @@
     setTimeout(() => {
       const shouldFail = new URLSearchParams(location.search).get("vocabulary") === "fail";
       overlay.showVocabularyResult(shouldFail
-        ? { state: "error", lemma: event.detail.lemma, error: "预览存储失败" }
+        ? { state: "error", lemma: event.detail.lemma, error: PST.t("storageUnavailable") }
         : { state: "success", lemma: event.detail.lemma });
     }, 320);
   });

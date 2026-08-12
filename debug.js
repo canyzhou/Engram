@@ -1,5 +1,7 @@
 (() => {
+  const PST = globalThis.ParamountSubtitles;
   const hasExtensionApi = Boolean(globalThis.chrome?.runtime?.id);
+  const t = (key, substitutions) => PST.t(key, substitutions);
   const nodes = Object.fromEntries([
     "connection-rail", "connection-title", "connection-detail", "bridge-status",
     "capture-source", "timeline-count", "page-url", "translator-engine",
@@ -10,7 +12,7 @@
 
   const sample = {
     ok: true,
-    version: "0.3.0",
+    version: "0.5.0",
     url: "https://www.paramountplus.com/shows/video/example/",
     capture: {
       bridgeReady: true,
@@ -23,7 +25,7 @@
         { at: new Date(Date.now() - 1600).toISOString(), type: "bridge-ready", detail: {} },
       ],
     },
-    translator: { engine: "local", state: "ready", progress: 1, message: "Chrome 本地翻译已就绪" },
+    translator: { engine: "local", state: "ready", progress: 1, message: "" },
     cue: { text: "I want to, like, run around, find idols.", translation: "我想四处走走，寻找偶像。", source: "WebVTT" },
   };
 
@@ -34,19 +36,19 @@
   };
 
   const renderLogs = (logs = []) => {
-    nodes["log-count"].textContent = `${logs.length} 条`;
+    nodes["log-count"].textContent = t("countItems", logs.length);
     nodes["log-list"].replaceChildren();
     if (!logs.length) {
       const empty = document.createElement("li");
       empty.className = "empty-log";
-      empty.textContent = "暂无事件，播放视频并开启英文字幕后再刷新。";
+      empty.textContent = t("noEvents");
       nodes["log-list"].append(empty);
       return;
     }
     for (const entry of logs) {
       const item = document.createElement("li");
       const time = document.createElement("time");
-      time.textContent = new Date(entry.at).toLocaleTimeString("zh-CN", { hour12: false });
+      time.textContent = new Date(entry.at).toLocaleTimeString(PST.getUiLanguage(), { hour12: false });
       const type = document.createElement("strong");
       type.textContent = entry.type;
       const detail = document.createElement("code");
@@ -60,20 +62,24 @@
     lastPayload = payload;
     const ok = Boolean(payload?.ok);
     nodes["connection-rail"].dataset.state = ok ? "connected" : "error";
-    nodes["connection-title"].textContent = ok ? "已连接到 Paramount+ 播放器" : "未连接到 Paramount+ 播放器";
-    nodes["connection-detail"].textContent = ok ? (payload.url || "播放器已响应") : (payload?.error || "请打开播放页后重试");
-    nodes["bridge-status"].textContent = payload?.capture?.bridgeReady ? "已连接" : "等待中";
+    nodes["connection-title"].textContent = ok ? t("connectedToPlayer") : t("notConnectedToPlayer");
+    nodes["connection-detail"].textContent = ok ? (payload.url || t("playerResponded")) : (payload?.error || t("retryAfterOpeningPlayer"));
+    nodes["bridge-status"].textContent = payload?.capture?.bridgeReady ? t("connected") : t("waiting");
     nodes["capture-source"].textContent = payload?.capture?.source || "—";
     nodes["timeline-count"].textContent = String(payload?.capture?.timelineCueCount ?? "—");
     nodes["page-url"].textContent = payload?.url || "—";
     nodes["page-url"].title = payload?.url || "";
-    nodes["translator-engine"].textContent = payload?.translator?.engine === "google" ? "Google 备用" : "Chrome 本地";
-    nodes["translator-state"].textContent = payload?.translator?.message || payload?.translator?.state || "—";
+    nodes["translator-engine"].textContent = {
+      deepseek: "DeepSeek V4 Flash",
+      google: t("googleFallback"),
+      local: t("chromeLocal"),
+    }[payload?.translator?.engine] || t("chromeLocal");
+    nodes["translator-state"].textContent = payload?.translator?.message || (payload?.translator?.state === "ready" ? t("chromeLocalReady") : payload?.translator?.state) || "—";
     nodes["translator-progress"].textContent = `${Math.round((payload?.translator?.progress || 0) * 100)}%`;
     nodes.version.textContent = payload?.version || "—";
-    nodes["cue-source"].textContent = payload?.cue?.source || payload?.capture?.source || "等待字幕";
-    nodes["cue-english"].textContent = payload?.cue?.text || "尚未捕获英文字幕。";
-    nodes["cue-chinese"].textContent = payload?.cue?.translation || "捕获成功后，翻译会显示在这里。";
+    nodes["cue-source"].textContent = payload?.cue?.source || payload?.capture?.source || t("waitingForSubtitles");
+    nodes["cue-english"].textContent = payload?.cue?.text || t("noEnglishSubtitle");
+    nodes["cue-chinese"].textContent = payload?.cue?.translation || t("translationAppearsHere");
     renderLogs(payload?.capture?.logs || []);
   };
 
@@ -84,7 +90,7 @@
     }
     try {
       const response = await chrome.runtime.sendMessage({ type: "GET_PARAMOUNT_STATUS" });
-      render(response || { ok: false, error: "没有收到状态" });
+      render(response || { ok: false, error: t("noStatusReceived") });
     } catch (error) {
       render({ ok: false, error: error.message });
     }
@@ -97,19 +103,30 @@
         type: "PREVIEW_PARAMOUNT_CUE",
         text: "I want to, like, run around, find idols.",
       });
-      showToast(response?.ok ? "模拟字幕已发送" : response?.error || "发送失败");
+      showToast(response?.ok ? t("subtitleSent") : response?.error || t("sendFailed"));
       setTimeout(refresh, 350);
     } else {
       render(sample);
-      showToast("已加载本地模拟字幕");
+      showToast(t("localSampleLoaded"));
     }
   });
   document.getElementById("copy").addEventListener("click", async () => {
     if (!lastPayload) return;
     await navigator.clipboard.writeText(JSON.stringify(lastPayload, null, 2));
-    showToast("诊断信息已复制");
+    showToast(t("diagnosticsCopied"));
   });
 
-  refresh();
-  if (hasExtensionApi) setInterval(refresh, 2000);
+  const initialize = async () => {
+    let uiLanguage = "en";
+    if (hasExtensionApi && chrome.storage?.sync) uiLanguage = (await chrome.storage.sync.get({ uiLanguage: "en" })).uiLanguage;
+    else {
+      try { uiLanguage = JSON.parse(localStorage.getItem("pst-preview-settings") || "{}").uiLanguage || "en"; } catch {}
+    }
+    PST.setUiLanguage(uiLanguage);
+    PST.applyI18n();
+    sample.translator.message = t("chromeLocalReady");
+    refresh();
+    if (hasExtensionApi) setInterval(refresh, 2000);
+  };
+  initialize();
 })();

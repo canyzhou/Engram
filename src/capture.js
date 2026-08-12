@@ -1,5 +1,6 @@
 (() => {
   const PST = globalThis.ParamountSubtitles;
+  const t = (key, substitutions) => PST.t?.(key, substitutions) || key;
 
   class DebugLog {
     constructor(limit = 120) {
@@ -361,7 +362,7 @@
           this.log.add("subtitle-hover-pause", { at: video.currentTime });
           return { ok: true, changed: true, paused: true };
         } catch (error) {
-          return { ok: false, changed: false, error: error?.message || "播放器无法暂停" };
+          return { ok: false, changed: false, error: error?.message || t("playerCannotPause") };
         }
       }
 
@@ -371,19 +372,19 @@
       try {
         const playResult = video.play();
         playResult?.catch?.((error) => {
-          this.log.add("subtitle-hover-resume-error", { message: error?.message || "播放器无法继续播放" });
+          this.log.add("subtitle-hover-resume-error", { message: error?.message || t("playerCannotResume") });
         });
         this.log.add("subtitle-hover-resume", { at: video.currentTime });
         return { ok: true, changed: true, paused: false };
       } catch (error) {
-        return { ok: false, changed: false, error: error?.message || "播放器无法继续播放" };
+        return { ok: false, changed: false, error: error?.message || t("playerCannotResume") };
       }
     }
 
     rewindPrevious(fallbackSeconds = 5) {
       const video = this.dom.largestVideo()?.video || document.querySelector("video");
       if (!video || !Number.isFinite(video.currentTime)) {
-        return { ok: false, error: "没有找到播放器" };
+        return { ok: false, error: t("playerNotFound") };
       }
       const fromTime = video.currentTime;
       const result = findPreviousCueTarget({
@@ -402,14 +403,14 @@
         });
         return { ok: true, ...result };
       } catch (error) {
-        return { ok: false, error: error?.message || "播放器无法跳转" };
+        return { ok: false, error: error?.message || t("playerCannotSeek") };
       }
     }
 
     status() {
       return {
         bridgeReady: this.bridgeReady,
-        source: this.lastCue.source || "等待字幕",
+        source: this.lastCue.source || t("waitingForSubtitles"),
         lastText: this.lastCue.text,
         timelineCueCount: this.timeline.cues.size,
         historyCueCount: this.history.length,

@@ -32,7 +32,63 @@
     work would yeah year yes yet you you'd you'll you're you've your
   `.trim().split(/\s+/));
 
-  const DIFFICULT_ENDING = /(?:ability|ation|ential|ically|ibility|ication|ology|phobia|tious|acious|escence|ical|atic|sion|tion|ment|ness|ship|ism|ist|ity|ive|ous|ary|ory)$/;
+  const CEFR_LEVELS = Object.freeze(["b1", "b2", "c1", "c2"]);
+  const DEFAULT_LEARNING_LEVELS = Object.freeze(["c1", "c2"]);
+  const LEVEL_RANK = Object.freeze({ b1: 1, b2: 2, c1: 3, c2: 4 });
+  const LEVEL_WORDS = Object.freeze({
+    b1: `
+      accident achieve advantage advice afford ahead alive allow alone although amaze announce
+      apologize appear apply argue arrange avoid behave belong borrow brave breathe cancel cause
+      celebrate certain chance choice collect common compare complain contact continue control
+      decide describe destroy develop discover education embarrass environment event explain fair
+      famous imagine improve include invite journey local manage mention message necessary opinion
+      ordinary organize patient perhaps prepare prevent promise protect realize receive remind
+      repair return save serious share simple strange suggest surprise trouble useful
+      activity adventure afternoon airport apartment arrive audience beautiful bicycle birthday
+      boring building business college conversation cooking country culture dangerous daughter
+      dictionary different difficult doctor early evening example excited exciting exercise
+      expensive experience favorite finish forget future garden happen holiday hospital husband
+      idol admire artifact mysterious explanation important information interesting interview
+      language magazine medicine meeting museum newspaper parent photograph picture popular
+      possible problem restaurant school science shopping situation station student subject
+      teacher television theater theatre tomorrow traffic travel understand university vacation
+      vegetable village weather weekend yesterday
+    `,
+    b2: `
+      absolutely academic accurate acknowledge adapt adequate alternative apparent appropriate
+      assume atmosphere attitude aware benefit circumstance commitment complex concentrate concern
+      confident consequence considerable constant contribute convince criticism demonstrate deny
+      determine effective emotional encourage establish estimate evidence exceptional expectation
+      familiar feature financial frequently fundamental generate identify ignore immediate impact
+      indicate influence insist intention interpret involve maintain mental obvious opportunity
+      persuade practical principle process recognize recommend recover relevant require response
+      reveal significant solution specific struggle sufficient tendency threaten typical willing
+      reluctant resilient obstacle inevitable
+    `,
+    c1: `
+      abolish absurd accelerate accomplish accumulate acknowledge advocate allocate ambiguous
+      anticipate arbitrary articulate assess attain authentic bias coherent compelling conceal
+      contradict controversial convey credible crucial deteriorate diminish elaborate encounter
+      enhance ethical exceed explicit exploit facilitate feasible fluctuate formulate foster
+      furthermore hypothesis imply incentive inevitable inhibit integral interpret justify
+      manipulate meticulous notion obscure perceive persist plausible profound reinforce reluctant
+      resolve restrict retain scrutiny sophisticated spontaneous substantial undergo undermine
+      institution bureaucratic justification convoluted
+    `,
+    c2: `
+      aberration acquiesce ameliorate anachronism assiduous circumspect conundrum deleterious
+      dichotomy disingenuous eclectic equivocation esoteric fastidious iconoclast idiosyncratic
+      intransigence magnanimous mendacious obfuscate ostensible paradigm perspicacious pernicious
+      quintessential recalcitrant sagacious sycophant ubiquitous vacillate extraordinarily
+    `,
+  });
+  const WORD_LEVEL = new Map();
+  for (const [level, words] of Object.entries(LEVEL_WORDS)) {
+    for (const word of words.trim().split(/\s+/)) WORD_LEVEL.set(word, level);
+  }
+  const C2_ENDING = /(?:escence|escent|ification|istically|istically|ological|iously)$/;
+  const C1_ENDING = /(?:ability|ibility|ential|ically|ication|ology|tious|acious|ality|arian|esque)$/;
+  const B2_ENDING = /(?:ation|ical|atic|sion|tion|ment|ness|ship|ism|ist|ity|ive|ous|ary|ory)$/;
   const LEARNING_WORD = /[A-Za-z]+(?:['’-][A-Za-z]+)*/g;
 
   const normalizeLearningWord = (word) => String(word || "")
@@ -40,47 +96,14 @@
     .replace(/[’]/g, "'")
     .replace(/^[^a-z]+|[^a-z]+$/g, "");
 
-  const selectDifficultWords = (text, limit = 3) => {
-    const source = String(text || "");
+  const learningLemmaCandidates = (word) => {
+    const value = normalizeLearningWord(word);
     const candidates = [];
-    const seen = new Set();
-    const safeLimit = Math.max(0, Math.min(5, Number(limit) || 0));
-
-    for (const match of source.matchAll(LEARNING_WORD)) {
-      const original = match[0];
-      const normalized = normalizeLearningWord(original);
-      if (
-        !normalized
-        || normalized.length < 5
-        || normalized.includes("'")
-        || BASIC_WORDS.has(normalized)
-        || seen.has(normalized)
-      ) continue;
-
-      // Title-cased words away from the beginning of a cue are usually character or place names.
-      if (match.index > 0 && /^[A-Z][a-z]+$/.test(original)) continue;
-
-      seen.add(normalized);
-      let score = 1;
-      if (normalized.length >= 7) score += 1;
-      if (normalized.length >= 10) score += 1;
-      if (DIFFICULT_ENDING.test(normalized)) score += 2;
-      candidates.push({ original, normalized, score, index: match.index });
-    }
-
-    return candidates
-      .sort((left, right) => right.score - left.score || left.index - right.index)
-      .slice(0, safeLimit)
-      .sort((left, right) => left.index - right.index)
-      .map((candidate) => candidate.original);
-  };
-
-  const lemmaCandidates = (word) => {
-    const value = String(word || "").toLowerCase().replace(/^[^a-z]+|[^a-z]+$/g, "");
-    const candidates = [value];
     if (IRREGULAR[value]) candidates.push(IRREGULAR[value]);
     if (value.endsWith("ies") && value.length > 4) candidates.push(`${value.slice(0, -3)}y`);
-    if (value.endsWith("ves") && value.length > 4) candidates.push(`${value.slice(0, -3)}f`);
+    if (value.endsWith("ves") && value.length > 4) {
+      candidates.push(`${value.slice(0, -3)}f`, `${value.slice(0, -3)}fe`);
+    }
     if (value.endsWith("ing") && value.length > 5) {
       const base = value.slice(0, -3);
       candidates.push(base, `${base}e`);
@@ -92,9 +115,88 @@
       if (/([a-z])\1$/.test(base)) candidates.push(base.slice(0, -1));
     }
     if (value.endsWith("es") && value.length > 4) candidates.push(value.slice(0, -2));
-    if (value.endsWith("s") && value.length > 3) candidates.push(value.slice(0, -1));
+    if (value.endsWith("s") && value.length > 3 && !/(?:ss|us|is|ous)$/.test(value)) {
+      candidates.push(value.slice(0, -1));
+    }
+    candidates.push(value);
     return [...new Set(candidates.filter(Boolean))];
   };
+
+  const classifyLearningWord = (word) => {
+    const normalized = normalizeLearningWord(word);
+    if (!normalized || normalized.length < 5 || normalized.includes("'") || BASIC_WORDS.has(normalized)) {
+      return null;
+    }
+
+    const candidates = learningLemmaCandidates(normalized);
+    for (const candidate of candidates) {
+      if (BASIC_WORDS.has(candidate)) return null;
+      if (WORD_LEVEL.has(candidate)) return WORD_LEVEL.get(candidate);
+    }
+
+    const basis = candidates.reduce((shortest, candidate) => (
+      candidate.length < shortest.length ? candidate : shortest
+    ), normalized);
+    let rank = basis.length >= 13 ? 4 : basis.length >= 10 ? 3 : basis.length >= 8 ? 2 : 1;
+    if (C2_ENDING.test(basis)) rank = Math.max(rank, 4);
+    else if (C1_ENDING.test(basis)) rank = Math.max(rank, 3);
+    else if (B2_ENDING.test(basis)) rank = Math.max(rank, 2);
+    return CEFR_LEVELS[rank - 1];
+  };
+
+  const normalizeSelectionOptions = (options) => {
+    if (typeof options === "number") {
+      return { limit: options, levels: CEFR_LEVELS };
+    }
+    const requested = Array.isArray(options?.levels) ? options.levels : DEFAULT_LEARNING_LEVELS;
+    return {
+      limit: options?.limit ?? 3,
+      levels: requested.filter((level) => LEVEL_RANK[level]),
+    };
+  };
+
+  const selectDifficultWords = (text, options = {}) => {
+    const source = String(text || "");
+    const candidates = [];
+    const seen = new Set();
+    const { limit, levels } = normalizeSelectionOptions(options);
+    const selectedLevels = new Set(levels);
+    const safeLimit = Math.max(0, Math.min(5, Number(limit) || 0));
+
+    for (const match of source.matchAll(LEARNING_WORD)) {
+      const original = match[0];
+      const normalized = normalizeLearningWord(original);
+      if (
+        !normalized
+        || seen.has(normalized)
+      ) continue;
+
+      // Title-cased words away from the beginning of a cue are usually character or place names.
+      if (match.index > 0 && /^[A-Z][a-z]+$/.test(original)) continue;
+
+      const level = classifyLearningWord(normalized);
+      if (!level || !selectedLevels.has(level)) continue;
+
+      seen.add(normalized);
+      candidates.push({ original, normalized, level, rank: LEVEL_RANK[level], index: match.index });
+    }
+
+    return candidates
+      .sort((left, right) => right.rank - left.rank || left.index - right.index)
+      .slice(0, safeLimit)
+      .sort((left, right) => left.index - right.index)
+      .map((candidate) => candidate.original);
+  };
+
+  const lemmaCandidates = learningLemmaCandidates;
+
+  const normalizeLookupContext = (options = {}) => ({
+    sentence: PST.normalizeSubtitle(options.sentence),
+    context: (Array.isArray(options.context) ? options.context : [])
+      .map((line) => PST.normalizeSubtitle(line))
+      .filter(Boolean)
+      .slice(-4),
+  });
 
   class DictionaryService {
     constructor(translator) {
@@ -102,45 +204,73 @@
       this.cache = new Map();
     }
 
-    async lookup(word, settings) {
+    async lookup(word, settings, options = {}) {
       const normalized = String(word || "").toLowerCase().replace(/[^a-z'-]/g, "");
       if (!normalized) return null;
-      const key = `${normalized}:${settings.engine}`;
+      const lookupContext = normalizeLookupContext(options);
+      const key = [
+        normalized,
+        settings.engine,
+        lookupContext.sentence,
+        lookupContext.context.join("\n"),
+      ].join("\u0000");
       if (this.cache.has(key)) return this.cache.get(key);
 
-      const response = await PST.safeSendMessage({
-        type: "DICTIONARY_LOOKUP",
-        candidates: lemmaCandidates(normalized),
-      });
-      const entry = response?.ok ? response.entry : null;
-      const lemma = entry?.word || lemmaCandidates(normalized).at(-1) || normalized;
+      const candidates = lemmaCandidates(normalized);
+      const [dictionaryResponse, contextualResponse] = await Promise.all([
+        PST.safeSendMessage({
+          type: "DICTIONARY_LOOKUP",
+          candidates,
+        }),
+        lookupContext.sentence
+          ? PST.safeSendMessage({
+            type: "CONTEXTUAL_WORD_LOOKUP",
+            word: normalized,
+            sentence: lookupContext.sentence,
+            context: lookupContext.context,
+          })
+          : Promise.resolve(null),
+      ]);
+      const entry = dictionaryResponse?.ok ? dictionaryResponse.entry : null;
+      const contextual = contextualResponse?.ok ? contextualResponse.entry : null;
+      const lemma = String(contextual?.lemma || entry?.word || candidates.at(-1) || normalized)
+        .toLowerCase()
+        .replace(/[^a-z'-]/g, "") || normalized;
 
-      let gloss = "";
-      try {
-        gloss = await this.translator.translate(lemma, settings);
-      } catch {
-        // Return dictionary details for hover cards, but do not cache a missing
-        // translation so a later user activation can retry the local translator.
-        gloss = "";
+      let gloss = String(contextual?.meaningZh || "").trim();
+      if (!gloss) {
+        try {
+          gloss = await this.translator.translate(lemma, settings);
+        } catch {
+          // Return dictionary details for hover cards, but do not cache a missing
+          // translation so a later user activation can retry the local translator.
+          gloss = "";
+        }
       }
 
-      const definition = entry?.definitions?.[0]?.definition || "";
+      const contextualDefinition = String(contextual?.definitionEn || "").trim();
+      const definition = contextualDefinition || entry?.definitions?.[0]?.definition || "";
       const result = {
         original: normalized,
         lemma,
+        phrase: String(contextual?.phrase || "").trim(),
         phonetic: entry?.phonetic || "",
-        partOfSpeech: entry?.definitions?.[0]?.partOfSpeech || "word",
+        partOfSpeech: String(contextual?.partOfSpeech || entry?.definitions?.[0]?.partOfSpeech || "word"),
         gloss,
         definition,
+        contextual: Boolean(contextual && gloss),
       };
-      if (gloss) this.cache.set(key, result);
+      // Contextual results are stable for this exact subtitle. A fallback gloss
+      // is deliberately not cached so a temporarily unavailable backend can be
+      // retried on the next hover.
+      if (contextual && gloss) this.cache.set(key, result);
       return result;
     }
 
-    async lookupMany(words, settings) {
+    async lookupMany(words, settings, options = {}) {
       const entries = await Promise.all((words || []).map(async (word) => {
         try {
-          return await this.lookup(word, settings);
+          return await this.lookup(word, settings, options);
         } catch {
           return null;
         }
@@ -150,6 +280,7 @@
   }
 
   PST.lemmaCandidates = lemmaCandidates;
+  PST.classifyLearningWord = classifyLearningWord;
   PST.selectDifficultWords = selectDifficultWords;
   PST.DictionaryService = DictionaryService;
 })();

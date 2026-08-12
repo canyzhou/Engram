@@ -1,23 +1,20 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Paramount 双语字幕</title>
+    <title data-i18n="extensionUiTitle">Engram · Immersive English</title>
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
     <main class="popup-shell">
       <header class="app-header">
-        <div class="brand-mark" aria-hidden="true">
-          <span class="wave wave--1"></span>
-          <span class="wave wave--2"></span>
-          <span class="wave wave--3"></span>
-          <span class="wave wave--4"></span>
-          <span class="wave wave--5"></span>
+        <img class="brand-mark" src="assets/icons/icon-48.png?v=0.5.0" width="38" height="38" alt="">
+        <div class="app-header__brand">
+          <h1 data-i18n="brandName">Engram</h1>
+          <p data-i18n="tagline">Turn content into English lessons</p>
         </div>
-        <h1>Paramount 双语字幕</h1>
-        <button class="icon-button" id="settings-shortcut" type="button" aria-label="字幕设置">
+        <button class="icon-button" id="settings-shortcut" type="button" aria-label="Learning settings" data-i18n-aria-label="settings">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z"/>
             <path d="M19.4 13.5a7.8 7.8 0 0 0 .05-3l1.75-1.34-2-3.46-2.18.9a8 8 0 0 0-2.58-1.5L14.1 2.8h-4l-.34 2.3a8 8 0 0 0-2.58 1.5L5 5.7 3 9.16l1.75 1.34a7.8 7.8 0 0 0 .05 3L3 14.84l2 3.46 2.24-.92a8 8 0 0 0 2.52 1.45l.34 2.37h4l.34-2.37a8 8 0 0 0 2.52-1.45l2.24.92 2-3.46-1.8-1.34Z"/>
@@ -27,57 +24,68 @@
 
       <div class="connection" id="connection" data-state="checking">
         <span class="connection__dot"></span>
-        <span class="connection__text">正在连接 Paramount+…</span>
+        <span class="connection__text" data-i18n="connectingParamount">Connecting to Paramount+…</span>
       </div>
 
-      <section class="primary-control" aria-label="插件总开关">
+      <section class="primary-control" aria-label="Extension controls" data-i18n-aria-label="masterControl">
         <label class="enable-row" for="enabled">
-          <span>启用字幕助手</span>
+          <span data-i18n="enableImmersiveLearning">Enable immersive learning</span>
           <span class="switch">
             <input id="enabled" type="checkbox">
             <span class="switch__track"><span class="switch__thumb"></span></span>
           </span>
         </label>
-        <div class="segmented" role="group" aria-label="字幕显示模式">
-          <button type="button" data-mode="bilingual">双语</button>
-          <button type="button" data-mode="chinese">仅中文</button>
-          <button type="button" data-mode="english">仅英文</button>
+        <div class="segmented" role="group" aria-label="Subtitle display mode" data-i18n-aria-label="subtitleDisplayMode">
+          <button type="button" data-mode="bilingual" data-i18n="bilingual">Bilingual</button>
+          <button type="button" data-mode="chinese" data-i18n="chineseOnly">Chinese</button>
+          <button type="button" data-mode="english" data-i18n="englishOnly">English</button>
         </div>
       </section>
 
       <section class="settings-section" aria-labelledby="translation-title">
-        <h2 id="translation-title">翻译</h2>
-        <div class="setting-row setting-row--static">
-          <span>源语言</span><strong>English</strong>
-        </div>
-        <div class="setting-row setting-row--static">
-          <span>目标语言</span><strong>简体中文</strong>
-        </div>
-        <label class="setting-row" for="engine">
-          <span>翻译引擎</span>
+        <h2 id="translation-title" data-i18n="comprehensionSupport">Comprehension</h2>
+        <label class="setting-row" for="ui-language">
+          <span data-i18n="language">Language</span>
           <span class="select-wrap">
-            <select id="engine">
-              <option value="local">Chrome 本地</option>
-              <option value="google">Google 备用</option>
+            <select id="ui-language">
+              <option value="en" data-i18n="languageEnglish">English</option>
+              <option value="zh-CN" data-i18n="languageChinese">简体中文</option>
             </select>
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
           </span>
         </label>
-        <p class="engine-note" id="engine-note">字幕留在设备上；首次播放交互时自动准备语言包。</p>
+        <div class="setting-row setting-row--static">
+          <span data-i18n="sourceLanguage">Source language</span><strong>English</strong>
+        </div>
+        <div class="setting-row setting-row--static">
+          <span data-i18n="targetLanguage">Translation language</span><strong data-i18n="simplifiedChinese">Simplified Chinese</strong>
+        </div>
+        <label class="setting-row" for="engine">
+          <span data-i18n="translationEngine">Translation engine</span>
+          <span class="select-wrap">
+            <select id="engine">
+              <option value="local" data-i18n="chromeLocal">Chrome on-device</option>
+              <option value="deepseek" data-i18n="deepseekQuality">DeepSeek high quality</option>
+              <option value="google" data-i18n="googleFallback">Google fallback</option>
+            </select>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+          </span>
+        </label>
+        <p class="engine-note" id="engine-note">Subtitles stay on this device.</p>
       </section>
 
       <section class="settings-section settings-section--style" id="style-settings" aria-labelledby="style-title">
-        <h2 id="style-title">字幕样式</h2>
+        <h2 id="style-title" data-i18n="subtitleStyle">Subtitle style</h2>
         <div class="setting-row">
-          <span>字号</span>
-          <div class="stepper" role="group" aria-label="字幕字号">
-            <button id="font-decrease" type="button" aria-label="减小字号">−</button>
+          <span data-i18n="fontSize">Text size</span>
+          <div class="stepper" role="group" aria-label="Text size" data-i18n-aria-label="fontSize">
+            <button id="font-decrease" type="button" aria-label="Decrease text size" data-i18n-aria-label="decreaseFontSize">−</button>
             <output id="font-size">28</output>
-            <button id="font-increase" type="button" aria-label="增大字号">＋</button>
+            <button id="font-increase" type="button" aria-label="Increase text size" data-i18n-aria-label="increaseFontSize">＋</button>
           </div>
         </div>
         <label class="setting-row setting-row--slider" for="background-opacity">
-          <span>背景</span>
+          <span data-i18n="background">Background</span>
           <span class="range-wrap">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5S4.5 8.6 4.5 12.2a5.5 5.5 0 0 0 11 0C15.5 8.6 10 2.5 10 2.5Z"/></svg>
             <input id="background-opacity" type="range" min="0" max="0.8" step="0.05">
@@ -85,41 +93,44 @@
           </span>
         </label>
         <div class="setting-row">
-          <span>位置</span>
-          <div class="position-control" role="group" aria-label="字幕位置">
-            <button id="position-up" type="button" aria-label="字幕上移">
+          <span data-i18n="position">Position</span>
+          <div class="position-control" role="group" aria-label="Subtitle position" data-i18n-aria-label="subtitlePosition">
+            <button id="position-up" type="button" aria-label="Move subtitles up" data-i18n-aria-label="moveSubtitlesUp">
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 12 6-6 6 6M10 6v9"/></svg>
             </button>
-            <button id="position-down" type="button" aria-label="字幕下移">
+            <button id="position-down" type="button" aria-label="Move subtitles down" data-i18n-aria-label="moveSubtitlesDown">
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 8 6 6 6-6M10 14V5"/></svg>
             </button>
           </div>
         </div>
         <div class="setting-row">
-          <span title="找不到上一句精确时间时使用">回看兜底</span>
-          <div class="stepper" role="group" aria-label="回看兜底秒数">
-            <button id="rewind-decrease" type="button" aria-label="减少回退秒数">−</button>
-            <output id="rewind-seconds">5秒</output>
-            <button id="rewind-increase" type="button" aria-label="增加回退秒数">＋</button>
+          <span title="Used when the previous subtitle timestamp is unavailable" data-i18n="rewindFallback" data-i18n-title="rewindFallbackHelp">Rewind fallback</span>
+          <div class="stepper" role="group" aria-label="Rewind fallback seconds" data-i18n-aria-label="rewindFallbackSeconds">
+            <button id="rewind-decrease" type="button" aria-label="Decrease rewind time" data-i18n-aria-label="decreaseRewind">−</button>
+            <output id="rewind-seconds">5s</output>
+            <button id="rewind-increase" type="button" aria-label="Increase rewind time" data-i18n-aria-label="increaseRewind">＋</button>
           </div>
         </div>
       </section>
 
-      <label class="learning-row learning-row--featured" for="learning-hints">
-        <span>
-          高难词辅助 <em>进阶</em>
-          <small>逐词高亮难词，并在词下显示简短翻译</small>
-        </span>
-        <span class="switch switch--small">
+      <div class="learning-row learning-row--featured">
+        <button class="learning-row__details" id="open-learning-settings" type="button" aria-label="Choose vocabulary levels" data-i18n-aria-label="chooseLevels">
+          <span>
+          <span data-i18n="difficultWordHints">Vocabulary hints</span> <em data-i18n="advanced">Advanced</em>
+            <small id="learning-summary">Levels: Advanced, Mastery · Adjust</small>
+          </span>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 6 6-6 6"/></svg>
+        </button>
+        <label class="switch switch--small" for="learning-hints" aria-label="Enable vocabulary hints" data-i18n-aria-label="enableVocabularyHints">
           <input id="learning-hints" type="checkbox">
           <span class="switch__track"><span class="switch__thumb"></span></span>
-        </span>
-      </label>
+        </label>
+      </div>
 
       <label class="learning-row" for="hover-dictionary">
         <span>
-          鼠标悬停查词
-          <small>悬停字幕时自动暂停，移开后继续播放</small>
+          <span data-i18n="hoverDictionary">Hover dictionary</span>
+          <small data-i18n="hoverDictionaryHelp">Pause on hover, then resume when the pointer leaves</small>
         </span>
         <span class="switch switch--small">
           <input id="hover-dictionary" type="checkbox">
@@ -129,8 +140,8 @@
 
       <label class="learning-row learning-row--compact" for="debug-toast">
         <span>
-          显示运行状态
-          <small>默认关闭；需要排查字幕或翻译问题时开启</small>
+          <span data-i18n="showRuntimeStatus">Show runtime status</span>
+          <small data-i18n="showRuntimeStatusHelp">Off by default; enable when diagnosing capture or translation</small>
         </span>
         <span class="switch switch--small">
           <input id="debug-toast" type="checkbox">
@@ -138,22 +149,24 @@
         </span>
       </label>
 
-      <button class="reset-placement" id="reset-placements" type="button">恢复字幕与状态块默认位置</button>
+      <button class="reset-placement" id="reset-placements" type="button" data-i18n="resetPositions">Reset subtitle and status positions</button>
 
       <footer class="app-footer">
         <div class="app-footer__actions">
           <button id="open-vocabulary" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Zm0 12h10M9 8h5"/></svg>
-            单词本
+            <span data-i18n="wordBank">Word bank</span>
           </button>
           <button id="open-debug" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-6 7 6 7M16 5l6 7-6 7M14 2 10 22"/></svg>
-            调试
+            <span data-i18n="diagnostics">Diagnostics</span>
           </button>
         </div>
-        <span>v0.4.0</span>
+        <span>v0.5.0</span>
       </footer>
     </main>
+    <script src="src/namespace.js"></script>
+    <script src="src/i18n.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
