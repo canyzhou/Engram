@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "Paramount 双语字幕",
+  "description": "为 Paramount+ 英文字幕提供实时简体中文翻译和悬停查词。",
+  "version": "0.4.0",
+  "minimum_chrome_version": "138",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Paramount 双语字幕",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/service-worker.js"
+  },
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.dictionaryapi.dev/*",
+    "https://translate.googleapis.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://paramountplus.com/*",
+        "https://www.paramountplus.com/*"
+      ],
+      "js": [
+        "src/namespace.js",
+        "src/settings.js",
+        "src/cache.js",
+        "src/translator.js",
+        "src/dictionary.js",
+        "src/overlay.js",
+        "src/capture.js",
+        "src/content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/page-bridge.js"
+      ],
+      "matches": [
+        "https://paramountplus.com/*",
+        "https://www.paramountplus.com/*"
+      ]
+    }
+  ]
+}

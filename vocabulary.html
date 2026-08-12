@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>我的单词本 · Paramount 双语字幕</title>
+    <link rel="stylesheet" href="vocabulary.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="vocabulary.html" aria-label="Paramount 双语字幕单词本首页">
+        <img src="assets/icons/icon-48.png" width="38" height="38" alt="">
+        <span>
+          <strong>Paramount 双语字幕</strong>
+          <small>Learning library</small>
+        </span>
+      </a>
+      <p class="privacy-note">
+        <span aria-hidden="true">●</span>
+        单词保存在本机
+      </p>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">PARAMOUNT+ LEARNING</p>
+          <h1 id="page-title">我的单词本</h1>
+          <p class="hero__copy">把剧里的生词留在这里，连同当时的字幕语境一起复习。</p>
+        </div>
+        <div class="hero__actions">
+          <button class="button button--ghost" id="export-csv" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+            导出 CSV
+          </button>
+          <button class="button button--danger-ghost" id="clear-all" type="button">清空单词本</button>
+        </div>
+      </section>
+
+      <section class="stats" aria-label="单词本统计">
+        <article>
+          <span>总词数</span>
+          <strong id="total-count">0</strong>
+        </article>
+        <article>
+          <span>本周新增</span>
+          <strong id="week-count">0</strong>
+        </article>
+        <article>
+          <span>最近添加</span>
+          <strong class="stats__recent" id="recent-word">—</strong>
+        </article>
+      </section>
+
+      <section class="library" aria-labelledby="library-title">
+        <div class="library__toolbar">
+          <div>
+            <h2 id="library-title">收藏的单词</h2>
+            <p id="result-summary">0 个单词</p>
+          </div>
+          <div class="filters">
+            <label class="search" for="search-input">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
+              <input id="search-input" type="search" autocomplete="off" placeholder="搜索单词、释义或字幕原句">
+              <button id="clear-search" type="button" aria-label="清空搜索" hidden>×</button>
+            </label>
+            <label class="sort" for="sort-order">
+              <span>排序</span>
+              <select id="sort-order">
+                <option value="recent">最近添加</option>
+                <option value="alphabetical">A–Z</option>
+                <option value="oldest">最早添加</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="word-list" id="word-list"></div>
+
+        <div class="empty-state" id="empty-state" hidden>
+          <div class="empty-state__icon" aria-hidden="true">Aa</div>
+          <h2 id="empty-title">还没有收藏单词</h2>
+          <p id="empty-copy">观看 Paramount+ 时，把鼠标悬停在英文字幕上，然后点击“加入生词”。</p>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="clear-dialog" aria-labelledby="dialog-title">
+      <form method="dialog">
+        <div class="dialog__icon" aria-hidden="true">!</div>
+        <h2 id="dialog-title">清空整个单词本？</h2>
+        <p>所有收藏的单词和字幕原句都会被删除，此操作无法撤销。</p>
+        <div class="dialog__actions">
+          <button class="button button--ghost" value="cancel">取消</button>
+          <button class="button button--danger" id="confirm-clear" value="confirm">确认清空</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite">
+      <span id="toast-message"></span>
+      <button id="toast-action" type="button" hidden>撤销</button>
+    </div>
+
+    <script src="vocabulary.js"></script>
+  </body>
+</html>

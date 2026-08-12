@@ -1,0 +1,61 @@
+(() => {
+  const root = globalThis.ParamountSubtitles || {};
+
+  root.VERSION = "0.4.0";
+  root.BRIDGE_SOURCE = "paramount-subtitle-page-bridge";
+  root.CONTENT_SOURCE = "paramount-subtitle-content";
+
+  root.normalizeSubtitle = (value) => String(value || "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s*\n\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  root.hash = (value) => {
+    let hash = 2166136261;
+    const text = String(value || "");
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  };
+
+  root.parseTime = (value) => {
+    if (typeof value === "number") return value;
+    const raw = String(value || "").trim();
+    if (!raw) return 0;
+    if (/^\d+(?:\.\d+)?ms$/i.test(raw)) return Number.parseFloat(raw) / 1000;
+    if (/^\d+(?:\.\d+)?s$/i.test(raw)) return Number.parseFloat(raw);
+    if (/^\d+(?:\.\d+)?m$/i.test(raw)) return Number.parseFloat(raw) * 60;
+    if (/^\d+(?:\.\d+)?h$/i.test(raw)) return Number.parseFloat(raw) * 3600;
+
+    const parts = raw.replace(",", ".").split(":").map(Number);
+    if (parts.some(Number.isNaN)) return 0;
+    if (parts.length === 3) return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+    if (parts.length === 2) return (parts[0] * 60) + parts[1];
+    return parts[0] || 0;
+  };
+
+  root.escapeHtml = (value) => String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+  root.safeSendMessage = async (message) => {
+    if (!globalThis.chrome?.runtime?.sendMessage) return null;
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch {
+      return null;
+    }
+  };
+
+  globalThis.ParamountSubtitles = root;
+})();

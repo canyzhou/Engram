@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Paramount 双语字幕 · 调试</title>
+    <link rel="stylesheet" href="debug.css">
+  </head>
+  <body>
+    <header class="debug-header">
+      <div>
+        <h1>Paramount 双语字幕</h1>
+        <p>采集器与本地翻译诊断</p>
+      </div>
+      <div class="header-actions">
+        <button id="simulate" type="button">模拟字幕</button>
+        <button id="copy" type="button">复制诊断</button>
+        <button class="primary" id="refresh" type="button">刷新</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="connection-rail" id="connection-rail" data-state="checking">
+        <span class="state-dot"></span>
+        <div>
+          <strong id="connection-title">正在连接 Paramount+ 标签页</strong>
+          <span id="connection-detail">请先打开一个播放页面</span>
+        </div>
+      </section>
+
+      <div class="status-grid">
+        <section class="status-panel" aria-labelledby="capture-title">
+          <h2 id="capture-title">字幕采集</h2>
+          <dl>
+            <div><dt>页面桥接</dt><dd id="bridge-status">—</dd></div>
+            <div><dt>当前来源</dt><dd id="capture-source">—</dd></div>
+            <div><dt>时间轴字幕</dt><dd id="timeline-count">—</dd></div>
+            <div><dt>页面地址</dt><dd class="truncate" id="page-url">—</dd></div>
+          </dl>
+        </section>
+
+        <section class="status-panel" aria-labelledby="translator-title">
+          <h2 id="translator-title">翻译状态</h2>
+          <dl>
+            <div><dt>引擎</dt><dd id="translator-engine">—</dd></div>
+            <div><dt>模型状态</dt><dd id="translator-state">—</dd></div>
+            <div><dt>进度</dt><dd id="translator-progress">—</dd></div>
+            <div><dt>版本</dt><dd id="version">—</dd></div>
+          </dl>
+        </section>
+      </div>
+
+      <section class="cue-panel" aria-labelledby="cue-title">
+        <div class="section-heading">
+          <h2 id="cue-title">当前字幕</h2>
+          <span id="cue-source">等待字幕</span>
+        </div>
+        <p class="cue cue--english" id="cue-english">尚未捕获英文字幕。</p>
+        <p class="cue cue--chinese" id="cue-chinese">捕获成功后，翻译会显示在这里。</p>
+      </section>
+
+      <section class="log-panel" aria-labelledby="log-title">
+        <div class="section-heading">
+          <h2 id="log-title">最近事件</h2>
+          <span id="log-count">0 条</span>
+        </div>
+        <div class="log-head" aria-hidden="true"><span>时间</span><span>事件</span><span>内容</span></div>
+        <ol id="log-list"></ol>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="debug.js"></script>
+  </body>
+</html>

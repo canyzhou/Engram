@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>字幕叠层预览</title>
+    <link rel="stylesheet" href="preview.css">
+  </head>
+  <body>
+    <main class="mock-video" aria-label="字幕叠层设计预览">
+      <div class="mock-video__scene" aria-hidden="true">
+        <span class="window window--one"></span>
+        <span class="window window--two"></span>
+        <span class="street-light street-light--one"></span>
+        <span class="street-light street-light--two"></span>
+        <span class="silhouette"></span>
+      </div>
+    </main>
+    <script src="src/namespace.js"></script>
+    <script src="src/settings.js"></script>
+    <script src="src/overlay.js?v=6"></script>
+    <script src="src/capture.js"></script>
+    <script src="preview.js?v=6"></script>
+  </body>
+</html>

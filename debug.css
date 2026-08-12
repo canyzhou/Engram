@@ -1,0 +1,81 @@
+:root {
+  color-scheme: dark;
+  --bg: #061321;
+  --surface: #0a1929;
+  --text: #f5f8fc;
+  --muted: #8fa5bd;
+  --border: #263b51;
+  --accent: #ff685d;
+  --green: #69c060;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+body { min-width: 760px; margin: 0; background: var(--bg); color: var(--text); }
+button { font: 620 13px/1 inherit; }
+.debug-header {
+  display: flex;
+  min-height: 104px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 24px max(32px, calc((100vw - 1120px) / 2));
+  border-bottom: 1px solid var(--border);
+  background: #071625;
+}
+.debug-header h1 { margin: 0; font-size: 23px; letter-spacing: -0.025em; }
+.debug-header p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.header-actions { display: flex; gap: 9px; }
+.header-actions button {
+  min-height: 37px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: #cddbea;
+  cursor: pointer;
+}
+.header-actions button:hover { background: #102237; }
+.header-actions .primary { border-color: var(--accent); background: var(--accent); color: #08131f; }
+main { width: min(1120px, calc(100vw - 64px)); margin: 28px auto 60px; }
+.connection-rail {
+  display: flex;
+  min-height: 66px;
+  align-items: center;
+  gap: 13px;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  border-left: 3px solid #ffb54a;
+  background: #081827;
+}
+.connection-rail[data-state="connected"] { border-left-color: var(--green); }
+.connection-rail[data-state="error"] { border-left-color: var(--accent); }
+.state-dot { width: 9px; height: 9px; border-radius: 50%; background: #ffb54a; }
+[data-state="connected"] .state-dot { background: var(--green); }
+[data-state="error"] .state-dot { background: var(--accent); }
+.connection-rail div { display: flex; flex-direction: column; gap: 3px; }
+.connection-rail strong { font-size: 14px; }
+.connection-rail span:not(.state-dot) { color: var(--muted); font-size: 12px; }
+.status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 31px; }
+.status-panel { border-top: 2px solid var(--border); }
+.status-panel h2, .section-heading h2 { margin: 16px 0 11px; font-size: 15px; }
+dl { margin: 0; }
+dl div { display: grid; grid-template-columns: 126px minmax(0, 1fr); min-height: 38px; align-items: center; border-bottom: 1px solid rgba(38, 59, 81, 0.72); }
+dt { color: var(--muted); font-size: 12px; }
+dd { margin: 0; font-size: 13px; text-align: right; }
+.truncate { overflow: hidden; color: #a9c8eb; text-overflow: ellipsis; white-space: nowrap; }
+.cue-panel, .log-panel { margin-top: 36px; border-top: 2px solid var(--border); }
+.section-heading { display: flex; align-items: baseline; justify-content: space-between; }
+.section-heading span { color: var(--muted); font-size: 11px; }
+.cue { margin: 0; padding: 13px 16px; border-left: 2px solid var(--border); background: #081827; font-size: 17px; line-height: 1.5; }
+.cue--chinese { padding-top: 0; color: #ff8177; font-size: 15px; }
+.log-head, #log-list li { display: grid; grid-template-columns: 104px 150px minmax(0, 1fr); gap: 18px; align-items: start; }
+.log-head { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 10px; text-transform: uppercase; }
+#log-list { margin: 0; padding: 0; list-style: none; }
+#log-list li { min-height: 42px; padding: 10px 12px; border-bottom: 1px solid rgba(38, 59, 81, 0.65); color: #cbd8e5; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+#log-list time { color: var(--muted); }
+#log-list strong { color: #8fb7eb; font-weight: 600; }
+#log-list code { overflow-wrap: anywhere; color: #b6c5d5; }
+.empty-log { display: block !important; color: var(--muted) !important; text-align: center; }
+.toast { position: fixed; right: 24px; bottom: 24px; padding: 11px 14px; border: 1px solid var(--border); border-radius: 7px; background: #0b1c2e; color: var(--text); font-size: 12px; opacity: 0; transform: translateY(6px); transition: 140ms ease; }
+.toast[data-open="true"] { opacity: 1; transform: translateY(0); }
+@media (max-width: 840px) { main { width: calc(100vw - 40px); } .debug-header { padding-inline: 20px; } }

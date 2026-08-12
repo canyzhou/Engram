@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subtitle bridge fixture</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #080b12; color: #f7f8fb; }
+    main { width: min(680px, calc(100vw - 48px)); padding: 32px; border: 1px solid #293044; border-radius: 20px; background: #101522; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p { color: #aeb7ca; }
+    .state { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 24px 0; }
+    .state div { padding: 16px; border-radius: 12px; background: #171e2e; }
+    strong { display: block; margin-top: 6px; color: #65d4ff; font-size: 22px; }
+    button { margin-right: 8px; padding: 10px 16px; border: 0; border-radius: 999px; font: inherit; font-weight: 700; cursor: pointer; }
+    #enable { background: #65d4ff; color: #071018; }
+    #disable { background: #2a3246; color: #fff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Subtitle auto-load QA</h1>
+    <p>The English track starts Off. Enabling the plugin must activate it without native rendering.</p>
+    <video id="video" hidden>
+      <track kind="subtitles" srclang="en-US" label="English (U.S.)" src="sample.vtt">
+    </video>
+    <div class="state">
+      <div>TextTrack mode<strong id="mode">loading</strong></div>
+      <div>Selected track<strong id="selected">none</strong></div>
+    </div>
+    <button id="enable" type="button">Enable bilingual subtitles</button>
+    <button id="disable" type="button">Disable plugin</button>
+  </main>
+  <script>
+    const video = document.querySelector("video");
+    const mode = document.querySelector("#mode");
+    const selected = document.querySelector("#selected");
+    const refresh = () => { mode.textContent = video.textTracks[0]?.mode || "missing"; };
+    window.addEventListener("message", (event) => {
+      if (event.data?.source !== "paramount-subtitle-page-bridge") return;
+      if (event.data.type === "TRACK_SELECTED") selected.textContent = event.data.detail.label || "selected";
+      setTimeout(refresh);
+    });
+    document.querySelector("#enable").addEventListener("click", () => {
+      window.postMessage({
+        source: "paramount-subtitle-content",
+        type: "SET_SUBTITLE_CAPTURE",
+        detail: { enabled: true, hide: true, sourceLanguage: "en" },
+      }, location.origin);
+      setTimeout(refresh);
+    });
+    document.querySelector("#disable").addEventListener("click", () => {
+      window.postMessage({
+        source: "paramount-subtitle-content",
+        type: "SET_SUBTITLE_CAPTURE",
+        detail: { enabled: false, hide: false, sourceLanguage: "en" },
+      }, location.origin);
+      selected.textContent = "none";
+      setTimeout(refresh);
+    });
+    refresh();
+  </script>
+  <script src="../../src/page-bridge.js"></script>
+</body>
+</html>
