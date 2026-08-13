@@ -129,17 +129,18 @@
     }
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTabId = tab?.id || null;
-    const isParamount = /^https:\/\/(?:www\.)?paramountplus\.com\//.test(tab?.url || "");
-    if (!isParamount) {
+    let site = { id: "unknown", name: "Video" };
+    try { site = PST.detectVideoSite(new URL(tab?.url || "").hostname); } catch {}
+    if (site.id === "unknown") {
       elements.connection.dataset.state = "disconnected";
-      elements.connectionText.textContent = t("openParamount");
+      elements.connectionText.textContent = t("openSupportedVideo");
       return;
     }
     const response = await sendToTab({ type: "GET_STATUS" });
     elements.connection.dataset.state = response?.ok ? "connected" : "checking";
     elements.connectionText.textContent = response?.ok
-      ? t("connectedParamount", response.capture?.source || t("waitingForSubtitles"))
-      : t("waitingForPlayer");
+      ? t("connectedVideo", [response.site?.name || site.name, response.capture?.source || t("waitingForSubtitles")])
+      : t("waitingForVideoPlayer", site.name);
   };
 
   elements.uiLanguage.addEventListener("change", async () => {

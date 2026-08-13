@@ -5,7 +5,7 @@ const DEFAULT_TRANSLATION_PROXY_URL = "http://127.0.0.1:8787";
 const GOOGLE_ENDPOINT = "https://translate.googleapis.com/translate_a/single";
 
 const dictionaryCache = new Map();
-let lastParamountTabId = null;
+let lastVideoTabId = null;
 let uiLanguage = "en";
 
 const UI_MESSAGES = Object.freeze({
@@ -20,14 +20,14 @@ const UI_MESSAGES = Object.freeze({
     googleEmptyResponse: "Google translation returned no content",
     proxyEmptyTranslation: "The translation proxy returned no translation",
     proxyEmptyWord: "The translation proxy returned no word entry",
-    paramountTabMissing: "No Paramount+ tab has been detected",
+    videoTabMissing: "No supported video tab has been detected",
     playerNoResponse: "The player did not respond",
   }),
   "zh-CN": Object.freeze({
     invalidProxyUrl: "翻译代理地址无效", secureProxyRequired: "翻译代理必须使用 HTTPS；本机回环地址可使用 HTTP", proxyCredentialsForbidden: "翻译代理地址不能包含凭据",
     proxyTimeout: "翻译代理响应超时，请稍后重试", proxyConnectionFailed: "无法连接翻译代理，请确认后端服务已启动", proxyRequestFailed: "翻译代理请求失败 ($1)",
     googleRequestFailed: "Google 翻译请求失败 ($1)", googleEmptyResponse: "Google 翻译没有返回内容", proxyEmptyTranslation: "翻译代理没有返回译文",
-    proxyEmptyWord: "翻译代理没有返回查词结果", paramountTabMissing: "尚未检测到 Paramount+ 标签页", playerNoResponse: "播放器未响应",
+    proxyEmptyWord: "翻译代理没有返回查词结果", videoTabMissing: "尚未检测到支持的视频标签页", playerNoResponse: "播放器未响应",
   }),
 });
 const t = (key, substitution = "") => (UI_MESSAGES[uiLanguage]?.[key] || UI_MESSAGES.en[key] || key).replaceAll("$1", String(substitution));
@@ -52,17 +52,17 @@ const localizeProxyError = (message, status) => {
   return ENGLISH_PROXY_ERRORS[value] || (/^[\x00-\x7F]*$/.test(value) ? value : t("proxyRequestFailed", status));
 };
 
-const rememberParamountTab = async (tabId) => {
+const rememberVideoTab = async (tabId) => {
   if (!tabId) return;
-  lastParamountTabId = tabId;
-  await chrome.storage.session.set({ lastParamountTabId: tabId });
+  lastVideoTabId = tabId;
+  await chrome.storage.session.set({ lastVideoTabId: tabId });
 };
 
-const resolveParamountTabId = async () => {
-  if (lastParamountTabId) return lastParamountTabId;
-  const stored = await chrome.storage.session.get("lastParamountTabId");
-  lastParamountTabId = stored.lastParamountTabId || null;
-  return lastParamountTabId;
+const resolveVideoTabId = async () => {
+  if (lastVideoTabId) return lastVideoTabId;
+  const stored = await chrome.storage.session.get(["lastVideoTabId", "lastParamountTabId"]);
+  lastVideoTabId = stored.lastVideoTabId || stored.lastParamountTabId || null;
+  return lastVideoTabId;
 };
 
 const normalizeTranslationProxyUrl = (value) => {
@@ -186,17 +186,17 @@ const fetchDictionaryEntry = async (candidates) => {
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === "REGISTER_PARAMOUNT_TAB" && sender.tab?.id) {
-    rememberParamountTab(sender.tab.id)
-      .then(() => sendResponse({ ok: true, tabId: lastParamountTabId }))
+  if (["REGISTER_VIDEO_TAB", "REGISTER_PARAMOUNT_TAB"].includes(message?.type) && sender.tab?.id) {
+    rememberVideoTab(sender.tab.id)
+      .then(() => sendResponse({ ok: true, tabId: lastVideoTabId }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 
-  if (message?.type === "GET_PARAMOUNT_STATUS") {
-    resolveParamountTabId()
+  if (["GET_VIDEO_STATUS", "GET_PARAMOUNT_STATUS"].includes(message?.type)) {
+    resolveVideoTabId()
       .then((tabId) => {
-        if (!tabId) throw new Error(t("paramountTabMissing"));
+        if (!tabId) throw new Error(t("videoTabMissing"));
         return chrome.tabs.sendMessage(tabId, { type: "GET_STATUS" });
       })
       .then((response) => sendResponse(response || { ok: false, error: t("playerNoResponse") }))
@@ -204,10 +204,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "PREVIEW_PARAMOUNT_CUE") {
-    resolveParamountTabId()
+  if (["PREVIEW_VIDEO_CUE", "PREVIEW_PARAMOUNT_CUE"].includes(message?.type)) {
+    resolveVideoTabId()
       .then((tabId) => {
-        if (!tabId) throw new Error(t("paramountTabMissing"));
+        if (!tabId) throw new Error(t("videoTabMissing"));
         return chrome.tabs.sendMessage(tabId, {
           type: "PREVIEW_CUE",
           text: message.text,

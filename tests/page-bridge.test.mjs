@@ -54,21 +54,35 @@ class FakeVideo extends FakeEventTarget {
   }
 }
 
-const createBridge = (tracks) => {
+const createBridge = (tracks, {
+  href = "https://example.test/watch",
+  playerResponse = null,
+  fetchImpl = async () => ({ url: "", headers: { get: () => "" } }),
+} = {}) => {
   const video = new FakeVideo(tracks);
   const messages = [];
+  const requests = [];
   const windowTarget = new FakeEventTarget();
   const window = {
-    fetch: async () => ({ url: "", headers: { get: () => "" } }),
+    fetch: async (...args) => {
+      requests.push(args);
+      return fetchImpl(...args);
+    },
     addEventListener: (...args) => windowTarget.addEventListener(...args),
     postMessage(data) {
       messages.push(data);
       windowTarget.dispatch("message", { source: window, data });
     },
   };
+  const pageUrl = new URL(href);
+  const player = playerResponse ? { getPlayerResponse: () => playerResponse } : null;
   const document = {
-    documentElement: {},
-    querySelector: (selector) => selector === "video" ? video : null,
+    documentElement: { dataset: {} },
+    querySelector: (selector) => {
+      if (selector === "video") return video;
+      if (selector === "#movie_player") return player;
+      return null;
+    },
     querySelectorAll: (selector) => selector === "video" ? [video] : [],
   };
 
@@ -87,12 +101,13 @@ const createBridge = (tracks) => {
     Request: class {},
     Set,
     String,
+    URL,
     WeakMap,
     WeakSet,
     XMLHttpRequest: FakeXhr,
     document,
     globalThis: null,
-    location: { href: "https://example.test/watch", origin: "https://example.test" },
+    location: { href: pageUrl.href, origin: pageUrl.origin, hostname: pageUrl.hostname },
     setInterval: () => 1,
     window,
   });
@@ -105,7 +120,7 @@ const createBridge = (tracks) => {
     detail,
   });
 
-  return { configure, messages, video };
+  return { configure, messages, requests, video };
 };
 
 test("activates an Off English subtitle track in hidden mode and restores Off", () => {
@@ -143,4 +158,46 @@ test("selects only the requested language when several subtitle tracks are Off",
   bridge.configure({ enabled: true, hide: true, sourceLanguage: "en" });
   assert.equal(english.mode, "hidden");
   assert.equal(spanish.mode, "disabled");
+});
+
+test("loads an authored English YouTube caption timeline without requiring native CC", async () => {
+  const json3 = JSON.stringify({
+    events: [{ tStartMs: 1_000, dDurationMs: 2_000, segs: [{ utf8: "Hello from YouTube" }] }],
+  });
+  const playerResponse = {
+    videoDetails: { videoId: "video-123" },
+    captions: {
+      playerCaptionsTracklistRenderer: {
+        captionTracks: [
+          { languageCode: "en", kind: "asr", baseUrl: "https://www.youtube.com/api/timedtext?v=video-123&lang=en&kind=asr" },
+          { languageCode: "en-GB", baseUrl: "https://www.youtube.com/api/timedtext?v=video-123&lang=en-GB", name: { simpleText: "English (UK)" } },
+        ],
+      },
+    },
+  };
+  const bridge = createBridge([], {
+    href: "https://www.youtube.com/watch?v=video-123",
+    playerResponse,
+    fetchImpl: async (url) => ({
+      ok: true,
+      url,
+      headers: { get: () => "application/json" },
+      clone() { return this; },
+      text: async () => json3,
+    }),
+  });
+
+  bridge.configure({ enabled: true, hide: true, sourceLanguage: "en" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(bridge.requests.length, 1);
+  const requestedUrl = new URL(bridge.requests[0][0]);
+  assert.equal(requestedUrl.searchParams.get("lang"), "en-GB");
+  assert.equal(requestedUrl.searchParams.get("fmt"), "json3");
+  const resource = bridge.messages.findLast((message) => message.type === "NETWORK_RESOURCE");
+  assert.equal(resource.detail.mediaKey, "youtube:video-123");
+  assert.equal(resource.detail.body, json3);
+  assert.equal(resource.detail.captionKind, "subtitles");
+  assert.equal(resource.detail.captionLanguage, "en-GB");
+  assert.equal(bridge.messages.some((message) => message.type === "YOUTUBE_TRACK_SELECTED"), true);
 });

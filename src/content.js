@@ -16,12 +16,13 @@
   const cueHistory = [];
   let lastContextTime = null;
   let preparingFromInteraction = false;
+  const videoSite = PST.detectVideoSite();
 
   const mount = () => {
     if (!document.documentElement) return;
     overlay.mount();
     capture.start();
-    PST.safeSendMessage({ type: "REGISTER_PARAMOUNT_TAB" });
+    PST.safeSendMessage({ type: "REGISTER_VIDEO_TAB", site: videoSite });
   };
 
   const statusMessage = () => {
@@ -262,6 +263,7 @@
         translator: translator.status,
         cue: currentCue,
         url: location.href,
+        site: videoSite,
       });
       return false;
     }

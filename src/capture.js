@@ -57,6 +57,206 @@
     return cues;
   };
 
+  const parseYouTubeJson3 = (body) => {
+    let payload;
+    try {
+      const value = typeof body === "string"
+        ? body.trimStart().replace(/^\)\]\}'\s*/, "")
+        : body;
+      payload = typeof value === "string" ? JSON.parse(value) : value;
+    } catch {
+      return [];
+    }
+    const events = Array.isArray(payload?.events) ? payload.events : [];
+    const cues = [];
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index];
+      const text = PST.normalizeSubtitle(
+        (event?.segs || []).map((segment) => segment?.utf8 || "").join(""),
+      );
+      const startMs = Number(event?.tStartMs);
+      if (!text || !Number.isFinite(startMs)) continue;
+      const durationMs = Number(event?.dDurationMs);
+      const nextStartMs = Number(events[index + 1]?.tStartMs);
+      const inferredDurationMs = Number.isFinite(nextStartMs) && nextStartMs > startMs
+        ? nextStartMs - startMs
+        : 2_000;
+      const endMs = startMs + (Number.isFinite(durationMs) && durationMs > 0 ? durationMs : inferredDurationMs);
+      cues.push({ start: startMs / 1000, end: endMs / 1000, text });
+    }
+    return cues;
+  };
+
+  const mergeIncrementalCaptionText = (currentText, nextText) => {
+    const current = PST.normalizeSubtitle(currentText);
+    const next = PST.normalizeSubtitle(nextText);
+    if (!current) return next;
+    if (!next) return current;
+    const currentLower = current.toLowerCase();
+    const nextLower = next.toLowerCase();
+    if (nextLower.startsWith(currentLower)) return next;
+    if (currentLower.startsWith(nextLower)) return current;
+
+    const currentWords = current.split(/\s+/);
+    const nextWords = next.split(/\s+/);
+    const maxOverlap = Math.min(currentWords.length, nextWords.length);
+    for (let size = maxOverlap; size > 0; size -= 1) {
+      const left = currentWords.slice(-size).join(" ").toLowerCase();
+      const right = nextWords.slice(0, size).join(" ").toLowerCase();
+      if (left === right) return PST.normalizeSubtitle([...currentWords, ...nextWords.slice(size)].join(" "));
+    }
+    return PST.normalizeSubtitle(`${current} ${next}`);
+  };
+
+  const captionDelta = (previousText, nextText) => {
+    const previous = PST.normalizeSubtitle(previousText);
+    const next = PST.normalizeSubtitle(nextText);
+    if (!previous) return next;
+    if (!next) return "";
+    const previousLower = previous.toLowerCase();
+    const nextLower = next.toLowerCase();
+    if (nextLower.startsWith(previousLower)) return next.slice(previous.length).trim();
+    if (previousLower.startsWith(nextLower)) return "";
+
+    const previousWords = previous.split(/\s+/);
+    const nextWords = next.split(/\s+/);
+    for (let size = Math.min(previousWords.length, nextWords.length); size > 0; size -= 1) {
+      if (
+        previousWords.slice(-size).join(" ").toLowerCase()
+        === nextWords.slice(0, size).join(" ").toLowerCase()
+      ) return nextWords.slice(size).join(" ");
+    }
+    return next;
+  };
+
+  const joinCaptionText = (currentText, nextText) => {
+    const current = PST.normalizeSubtitle(currentText);
+    const next = PST.normalizeSubtitle(nextText);
+    if (!current) return next;
+    if (!next) return current;
+    if (/^[,.;:!?…%)\]}]/.test(next) || /[(\[{“‘$]$/.test(current)) return `${current}${next}`;
+    return `${current} ${next}`;
+  };
+
+  const splitCompleteSentences = (text) => {
+    const value = PST.normalizeSubtitle(text);
+    const complete = [];
+    const abbreviation = /\b(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|e\.g|i\.e)$/i;
+    let sentenceStart = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      if (!/[.!?…]/.test(value[index])) continue;
+      const before = value.slice(sentenceStart, index).trim();
+      if (value[index] === "." && (abbreviation.test(before) || /\b[A-Z]$/.test(before))) continue;
+      if (value[index] === "." && /\d$/.test(before) && /^\d/.test(value.slice(index + 1))) continue;
+      let end = index + 1;
+      while (/[.!?…]/.test(value[end] || "")) end += 1;
+      while (/["'’”\])}]/.test(value[end] || "")) end += 1;
+      if (end < value.length && !/\s/.test(value[end])) continue;
+      const sentence = value.slice(sentenceStart, end).trim();
+      if (sentence) complete.push(sentence);
+      sentenceStart = end;
+      while (/\s/.test(value[sentenceStart] || "")) sentenceStart += 1;
+      index = sentenceStart - 1;
+    }
+    return { complete, remainder: value.slice(sentenceStart).trim() };
+  };
+
+  const aggregateYouTubeAutoCues = (cues, {
+    hardMaxDuration = 30,
+    hardMaxLength = 320,
+    pauseSeconds = 1.6,
+  } = {}) => {
+    const ordered = [...(cues || [])]
+      .filter((cue) => cue?.text && Number.isFinite(cue.start))
+      .sort((left, right) => left.start - right.start);
+    const sentences = [];
+    let current = null;
+    let previousRawText = "";
+    const flush = () => {
+      if (!current?.text) return;
+      sentences.push({ start: current.start, end: current.end, text: current.text });
+      current = null;
+    };
+
+    for (const cue of ordered) {
+      const rawText = PST.normalizeSubtitle(cue.text);
+      const delta = captionDelta(previousRawText, rawText);
+      previousRawText = rawText;
+      if (!delta) {
+        if (current) current.end = Math.max(current.end, cue.end);
+        continue;
+      }
+      if (!current) {
+        current = { start: cue.start, end: cue.end, text: delta, lastStart: cue.start };
+      } else {
+        const gap = cue.start - current.lastStart;
+        const beginsNewThought = /^[A-Z]/.test(delta)
+          && !/^(?:I|I'm|I've|I'll|I'd)\b/.test(delta)
+          && !/[,:;—-]$/.test(current.text);
+        const endsIncomplete = /\b(?:a|an|the|and|or|but|because|if|when|while|to|of|in|on|at|for|with|from|by|as|that|which|who|whose|is|are|was|were|be|been|being|have|has|had|do|does|did|can|could|will|would|should|may|might|must|not)$/i.test(current.text);
+        if (
+          gap > pauseSeconds
+          && beginsNewThought
+          && !endsIncomplete
+          && current.text.split(/\s+/).length >= 4
+        ) {
+          flush();
+          current = { start: cue.start, end: cue.end, text: delta, lastStart: cue.start };
+        } else {
+          current.text = joinCaptionText(current.text, delta);
+          current.end = Math.max(current.end, cue.end);
+          current.lastStart = cue.start;
+        }
+      }
+
+      const { complete, remainder } = splitCompleteSentences(current.text);
+      if (complete.length) {
+        const span = Math.max(0.2, current.end - current.start);
+        const totalLength = complete.reduce((sum, sentence) => sum + sentence.length, 0) + remainder.length;
+        let sentenceStart = current.start;
+        for (const sentence of complete) {
+          const share = sentence.length / Math.max(totalLength, 1);
+          const sentenceEnd = Math.min(current.end, sentenceStart + Math.max(0.35, span * share));
+          sentences.push({ start: sentenceStart, end: sentenceEnd, text: sentence });
+          sentenceStart = sentenceEnd;
+        }
+        current = remainder
+          ? { start: sentenceStart, end: cue.end, text: remainder, lastStart: cue.start }
+          : null;
+      }
+
+      if (
+        current
+        && (cue.start - current.start > hardMaxDuration || current.text.length > hardMaxLength)
+      ) flush();
+    }
+    flush();
+    return sentences;
+  };
+
+  const parseYouTubeTimedText = (body) => {
+    const cues = [];
+    try {
+      const documentNode = new DOMParser().parseFromString(String(body || ""), "text/xml");
+      for (const node of documentNode.querySelectorAll("text[start], text[t], p[t]")) {
+        const millisecondTiming = node.hasAttribute("t");
+        const start = millisecondTiming
+          ? Number(node.getAttribute("t")) / 1000
+          : Number(node.getAttribute("start"));
+        const duration = millisecondTiming
+          ? Number(node.getAttribute("d")) / 1000
+          : Number(node.getAttribute("dur"));
+        const text = PST.normalizeSubtitle(node.textContent);
+        if (text && Number.isFinite(start)) {
+          cues.push({ start, end: start + (Number.isFinite(duration) && duration > 0 ? duration : 2), text });
+        }
+      }
+    } catch {
+      return [];
+    }
+    return cues;
+  };
+
   const findPreviousCueTarget = ({ history, currentTime, currentText, fallbackSeconds = 5 }) => {
     const now = Number.isFinite(currentTime) ? currentTime : 0;
     const previous = [...(history || [])].reverse().find((entry) => (
@@ -77,27 +277,56 @@
     };
   };
 
+  class CueGapGuard {
+    constructor(graceMs = 650) {
+      this.graceMs = graceMs;
+      this.missStartedAt = 0;
+    }
+
+    shouldHold(hasCue, now = Date.now()) {
+      if (hasCue) {
+        this.missStartedAt = 0;
+        return false;
+      }
+      if (!this.missStartedAt) this.missStartedAt = now;
+      return now - this.missStartedAt < this.graceMs;
+    }
+  }
+
   class NetworkTimeline {
     constructor(log) {
       this.log = log;
       this.cues = new Map();
+      this.mediaKey = "";
     }
 
     ingest(resource) {
       const header = String(resource.body || "").slice(0, 500).toLowerCase();
       const value = `${resource.url} ${resource.contentType} ${header}`.toLowerCase();
+      const nextMediaKey = String(resource.mediaKey || "");
+      if (nextMediaKey && this.mediaKey && nextMediaKey !== this.mediaKey) {
+        this.cues.clear();
+        this.log.add("timeline-reset", { from: this.mediaKey, to: nextMediaKey });
+      }
+      if (nextMediaKey) this.mediaKey = nextMediaKey;
       let cues = [];
       let format = "manifest";
       if (value.includes("webvtt") || value.includes("text/vtt") || /\.vtt(?:\?|$)/i.test(resource.url)) {
         cues = parseWebVtt(resource.body);
         format = "WebVTT";
+      } else if (/youtube\.com\/api\/timedtext|youtube-nocookie\.com\/api\/timedtext/i.test(resource.url) || header.includes('"events"')) {
+        const isJson3 = header.startsWith("{") || header.startsWith(")]}'") || value.includes("application/json");
+        cues = isJson3 ? parseYouTubeJson3(resource.body) : parseYouTubeTimedText(resource.body);
+        const isAutomatic = resource.captionKind === "asr";
+        if (isAutomatic) cues = aggregateYouTubeAutoCues(cues);
+        format = isAutomatic ? "YouTube Auto" : (isJson3 ? "YouTube JSON3" : "YouTube timedtext");
       } else if (value.includes("ttml") || value.includes("<tt") || /\.(ttml|dfxp)(?:\?|$)/i.test(resource.url)) {
         cues = parseTtml(resource.body);
         format = "TTML";
       }
 
       for (const cue of cues) {
-        this.cues.set(`${cue.start}:${cue.end}:${PST.hash(cue.text)}`, cue);
+        this.cues.set(`${cue.start}:${cue.end}:${PST.hash(cue.text)}`, { ...cue, source: format });
       }
       if (this.cues.size > 4000) {
         const ordered = [...this.cues.entries()].sort((left, right) => left[1].start - right[1].start);
@@ -132,6 +361,9 @@
       this.scanTimer = 0;
       this.observer = null;
       this.originalOpacity = new WeakMap();
+      this.timelineAvailable = false;
+      this.pendingText = "";
+      this.pendingTimer = 0;
     }
 
     start() {
@@ -159,6 +391,14 @@
       }
     }
 
+    setTimelineAvailable(available) {
+      this.timelineAvailable = Boolean(available);
+      clearTimeout(this.pendingTimer);
+      this.pendingTimer = 0;
+      this.pendingText = "";
+      this.scheduleScan();
+    }
+
     scheduleScan() {
       if (this.scanTimer) return;
       this.scanTimer = setTimeout(() => {
@@ -178,6 +418,22 @@
       const videoEntry = this.largestVideo();
       if (!videoEntry) return;
       const { rect: videoRect } = videoEntry;
+      const youtubeCandidates = [...document.querySelectorAll(".ytp-caption-window-container")]
+        .map((node) => {
+          const segments = [...node.querySelectorAll(".ytp-caption-segment")];
+          const text = PST.normalizeSubtitle(
+            (segments.length ? segments : [node]).map((segment) => segment.textContent || "").join(" "),
+          );
+          const rect = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          if (!text || text.length > 320 || style.display === "none" || style.visibility === "hidden") return null;
+          const overlapX = Math.max(0, Math.min(rect.right, videoRect.right) - Math.max(rect.left, videoRect.left));
+          const overlapY = Math.max(0, Math.min(rect.bottom, videoRect.bottom) - Math.max(rect.top, videoRect.top));
+          if (overlapX < 20 || overlapY < 8) return null;
+          return { node, text, score: rect.bottom + overlapX, source: "YouTube DOM" };
+        })
+        .filter(Boolean)
+        .sort((left, right) => right.score - left.score);
       const selector = [
         "[class*='caption' i]",
         "[class*='subtitle' i]",
@@ -185,7 +441,7 @@
         "[data-testid*='subtitle' i]",
         "[aria-live='polite']",
       ].join(",");
-      const candidates = [...document.querySelectorAll(selector)].slice(-180)
+      const genericCandidates = [...document.querySelectorAll(selector)].slice(-180)
         .filter((node) => !node.closest("paramount-subtitle-overlay") && !node.dataset.pstRoot)
         .map((node) => {
           const text = PST.normalizeSubtitle(node.textContent);
@@ -197,23 +453,43 @@
           const insideY = rect.top >= videoRect.top + (videoRect.height * 0.42) && rect.bottom <= videoRect.bottom + 12;
           if (!insideY || overlapX < Math.min(rect.width, videoRect.width) * 0.45) return null;
           const score = (rect.top - videoRect.top) / videoRect.height + (overlapX / videoRect.width);
-          return { node, text, score };
+          return { node, text, score, source: "DOM" };
         })
         .filter(Boolean)
         .sort((left, right) => right.score - left.score);
 
-      const candidate = candidates[0];
+      const isYouTube = PST.detectVideoSite?.().id === "youtube";
+      const candidate = youtubeCandidates[0] || (!isYouTube ? genericCandidates[0] : null);
       if (!candidate || candidate.text === this.lastText) return;
-      this.restoreLastNode();
-      this.lastText = candidate.text;
-      this.lastNode = candidate.node;
+      if (candidate.node !== this.lastNode) {
+        this.restoreLastNode();
+        this.lastNode = candidate.node;
+      }
       if (this.hideNative) this.hideNode(candidate.node);
+      if (candidate.source === "YouTube DOM") {
+        if (this.timelineAvailable) return;
+        if (candidate.text === this.pendingText) return;
+        this.pendingText = candidate.text;
+        clearTimeout(this.pendingTimer);
+        this.pendingTimer = setTimeout(() => {
+          if (this.timelineAvailable || this.pendingText !== candidate.text) return;
+          this.pendingText = "";
+          this.emitCandidate(candidate, videoEntry.video.currentTime);
+        }, 420);
+        return;
+      }
+      this.emitCandidate(candidate, videoEntry.video.currentTime);
+    }
+
+    emitCandidate(candidate, videoTime) {
+      if (!candidate || candidate.text === this.lastText) return;
+      this.lastText = candidate.text;
       this.log.add("dom-cue", { text: candidate.text.slice(0, 160) });
       this.onCue({
         text: candidate.text,
-        source: "DOM",
+        source: candidate.source,
         node: candidate.node,
-        videoTime: videoEntry.video.currentTime,
+        videoTime,
       });
     }
 
@@ -244,7 +520,18 @@
       this.sourceLanguage = "en";
       this.pollTimer = 0;
       this.hoverPausedVideo = null;
-      this.priorities = { TextTrack: 3, DOM: 2, WebVTT: 1, TTML: 1, Preview: 4 };
+      this.networkGap = new CueGapGuard();
+      this.priorities = {
+        TextTrack: 3,
+        "YouTube DOM": 2,
+        DOM: 2,
+        WebVTT: 1,
+        TTML: 1,
+        "YouTube JSON3": 1,
+        "YouTube timedtext": 1,
+        "YouTube Auto": 1,
+        Preview: 4,
+      };
     }
 
     start() {
@@ -255,6 +542,7 @@
     }
 
     injectBridge() {
+      if (document.documentElement?.dataset.engramSubtitleBridge === "true") return;
       if (document.querySelector("script[data-paramount-subtitle-bridge]")) return;
       const script = document.createElement("script");
       script.src = chrome.runtime.getURL("src/page-bridge.js");
@@ -281,7 +569,14 @@
         });
       } else if (type === "NETWORK_RESOURCE") {
         const result = this.timeline.ingest(detail);
+        if (result.format.startsWith("YouTube")) {
+          this.dom.setTimelineAvailable(result.cueCount > 0);
+          if (result.cueCount > 0 && this.lastCue.source === "YouTube DOM") this.lastCue.at = 0;
+        }
         this.dispatchEvent(new CustomEvent("network", { detail: result }));
+      } else if (type === "YOUTUBE_TRACK_ERROR") {
+        this.dom.setTimelineAvailable(false);
+        this.log.add(type.toLowerCase(), detail);
       } else {
         this.log.add(type.toLowerCase(), detail);
       }
@@ -319,9 +614,15 @@
       const video = document.querySelector("video");
       if (!video || !Number.isFinite(video.currentTime)) return;
       const cue = this.timeline.at(video.currentTime);
-      if (cue) this.accept({ ...cue, source: "WebVTT" });
+      if (cue) {
+        this.networkGap.shouldHold(true);
+        this.accept({ ...cue, source: cue.source || "WebVTT" });
+      }
       else if ((this.priorities[this.lastCue.source] || 0) <= 1 && this.lastCue.text) {
+        if (this.networkGap.shouldHold(false)) return;
         this.accept({ text: "", source: this.lastCue.source || "WebVTT" });
+      } else {
+        this.networkGap.shouldHold(true);
       }
     }
 
@@ -422,6 +723,13 @@
   PST.DebugLog = DebugLog;
   PST.parseWebVtt = parseWebVtt;
   PST.parseTtml = parseTtml;
+  PST.parseYouTubeJson3 = parseYouTubeJson3;
+  PST.mergeIncrementalCaptionText = mergeIncrementalCaptionText;
+  PST.captionDelta = captionDelta;
+  PST.splitCompleteSentences = splitCompleteSentences;
+  PST.aggregateYouTubeAutoCues = aggregateYouTubeAutoCues;
+  PST.parseYouTubeTimedText = parseYouTubeTimedText;
   PST.findPreviousCueTarget = findPreviousCueTarget;
+  PST.CueGapGuard = CueGapGuard;
   PST.CaptureCoordinator = CaptureCoordinator;
 })();

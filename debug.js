@@ -12,21 +12,22 @@
 
   const sample = {
     ok: true,
-    version: "0.5.0",
-    url: "https://www.paramountplus.com/shows/video/example/",
+    version: "0.6.0",
+    url: "https://www.youtube.com/watch?v=example",
+    site: { id: "youtube", name: "YouTube" },
     capture: {
       bridgeReady: true,
-      source: "WebVTT",
+      source: "YouTube JSON3",
       lastText: "I want to, like, run around, find idols.",
       timelineCueCount: 148,
       logs: [
-        { at: new Date().toISOString(), type: "cue", detail: { source: "WebVTT", text: "I want to, like, run around, find idols." } },
-        { at: new Date(Date.now() - 800).toISOString(), type: "network-resource", detail: { format: "WebVTT", cueCount: 42, url: "https://example.invalid/stream_vtt.m3u8" } },
+        { at: new Date().toISOString(), type: "cue", detail: { source: "YouTube JSON3", text: "I want to, like, run around, find idols." } },
+        { at: new Date(Date.now() - 800).toISOString(), type: "network-resource", detail: { format: "YouTube JSON3", cueCount: 42, url: "https://www.youtube.com/api/timedtext" } },
         { at: new Date(Date.now() - 1600).toISOString(), type: "bridge-ready", detail: {} },
       ],
     },
     translator: { engine: "local", state: "ready", progress: 1, message: "" },
-    cue: { text: "I want to, like, run around, find idols.", translation: "我想四处走走，寻找偶像。", source: "WebVTT" },
+    cue: { text: "I want to, like, run around, find idols.", translation: "我想四处走走，寻找偶像。", source: "YouTube JSON3" },
   };
 
   const showToast = (message) => {
@@ -62,7 +63,9 @@
     lastPayload = payload;
     const ok = Boolean(payload?.ok);
     nodes["connection-rail"].dataset.state = ok ? "connected" : "error";
-    nodes["connection-title"].textContent = ok ? t("connectedToPlayer") : t("notConnectedToPlayer");
+    nodes["connection-title"].textContent = ok
+      ? t("connectedToVideoPlayer", payload?.site?.name || "Video")
+      : t("notConnectedToVideoPlayer");
     nodes["connection-detail"].textContent = ok ? (payload.url || t("playerResponded")) : (payload?.error || t("retryAfterOpeningPlayer"));
     nodes["bridge-status"].textContent = payload?.capture?.bridgeReady ? t("connected") : t("waiting");
     nodes["capture-source"].textContent = payload?.capture?.source || "—";
@@ -89,7 +92,7 @@
       return;
     }
     try {
-      const response = await chrome.runtime.sendMessage({ type: "GET_PARAMOUNT_STATUS" });
+      const response = await chrome.runtime.sendMessage({ type: "GET_VIDEO_STATUS" });
       render(response || { ok: false, error: t("noStatusReceived") });
     } catch (error) {
       render({ ok: false, error: error.message });
@@ -100,7 +103,7 @@
   document.getElementById("simulate").addEventListener("click", async () => {
     if (hasExtensionApi) {
       const response = await chrome.runtime.sendMessage({
-        type: "PREVIEW_PARAMOUNT_CUE",
+        type: "PREVIEW_VIDEO_CUE",
         text: "I want to, like, run around, find idols.",
       });
       showToast(response?.ok ? t("subtitleSent") : response?.error || t("sendFailed"));

@@ -20,7 +20,10 @@
       --pst-bottom: 13%;
       all: initial;
       position: fixed;
-      inset: 0;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
       z-index: 2147483646;
       display: block;
       pointer-events: none;
@@ -39,7 +42,7 @@
       left: 50%;
       bottom: var(--pst-bottom);
       width: max-content;
-      max-width: min(88vw, 1180px);
+      max-width: min(88%, 1180px);
       transform: translateX(-50%);
       display: flex;
       flex-direction: column;
@@ -142,11 +145,13 @@
     }
     .chinese {
       margin-top: 4px;
+      min-height: 1.34em;
       color: #ff8177;
       font-size: calc(var(--pst-font-size) * 0.82);
       font-weight: 560;
       line-height: 1.34;
     }
+    .chinese:empty { visibility: hidden; }
     .word {
       position: relative;
       display: inline;
@@ -266,7 +271,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      max-width: min(310px, calc(100vw - 28px));
+      max-width: min(310px, calc(100% - 28px));
       padding: 5px 8px;
       border: 1px solid rgba(126, 156, 190, 0.24);
       border-radius: 6px;
@@ -302,11 +307,12 @@
       background: var(--pst-accent);
     }
     :host([data-disabled="true"]) .subtitles { opacity: 0; }
+    :host([data-player-visible="false"]) { display: none; }
     :host([data-disabled="true"]) .rewind-button { pointer-events: none; }
     :host([data-mode="chinese"]) .english { display: none; }
     :host([data-mode="english"]) .chinese { display: none; }
     @media (max-width: 760px) {
-      .subtitles { max-width: 94vw; }
+      .subtitles { max-width: 94%; }
       .caption-shell { padding: 8px 14px 9px; border-radius: 8px; }
       .english { font-size: min(var(--pst-font-size), 24px); }
       .chinese { font-size: min(calc(var(--pst-font-size) * 0.82), 20px); }
@@ -325,6 +331,7 @@
       this.settings = { ...PST.DEFAULT_SETTINGS };
       this.host = document.createElement("paramount-subtitle-overlay");
       this.host.dataset.pstRoot = "true";
+      this.host.dataset.playerVisible = "false";
       this.shadow = this.host.attachShadow({ mode: "open" });
       this.shadow.innerHTML = `
         <style>${STYLES}</style>
@@ -367,6 +374,8 @@
       this.rewindFeedbackTimer = 0;
       this.subtitleHoverTimer = 0;
       this.subtitleHoverActive = false;
+      this.boundsSignature = "";
+      this.boundsTimer = 0;
       this.localizeStaticUi();
 
       for (const node of [this.captionShell, this.rewindButton, this.tooltip]) {
@@ -412,13 +421,73 @@
         });
       }
       document.addEventListener("fullscreenchange", () => this.mount(), true);
-      window.addEventListener("resize", () => this.applyPlacements(), { passive: true });
+      window.addEventListener("resize", () => {
+        this.syncPlayerBounds();
+        this.applyPlacements();
+      }, { passive: true });
+      window.addEventListener("scroll", () => this.syncPlayerBounds(), { passive: true });
     }
 
     mount() {
       const target = document.fullscreenElement || document.documentElement;
       if (target && this.host.parentElement !== target) target.appendChild(this.host);
+      this.syncPlayerBounds();
+      if (!this.boundsTimer) this.boundsTimer = setInterval(() => this.syncPlayerBounds(), 250);
       requestAnimationFrame(() => this.applyPlacements());
+    }
+
+    playbackRect() {
+      const candidates = [...document.querySelectorAll("video")]
+        .map((video) => ({ video, rect: video.getBoundingClientRect() }))
+        .filter(({ video, rect }) => (
+          !video.hidden
+          && rect.width > 300
+          && rect.height > 150
+          && rect.bottom > 0
+          && rect.right > 0
+          && rect.top < window.innerHeight
+          && rect.left < window.innerWidth
+        ))
+        .sort((left, right) => (right.rect.width * right.rect.height) - (left.rect.width * left.rect.height));
+      if (candidates[0]?.rect) return candidates[0].rect;
+      const previewPlayer = document.querySelector("[data-pst-player]");
+      if (!previewPlayer) return null;
+      const previewRect = previewPlayer.getBoundingClientRect();
+      if (
+        previewRect.width <= 300
+        || previewRect.height <= 150
+        || previewRect.bottom <= 0
+        || previewRect.right <= 0
+        || previewRect.top >= window.innerHeight
+        || previewRect.left >= window.innerWidth
+      ) return null;
+      return previewRect;
+    }
+
+    syncPlayerBounds() {
+      const rect = this.playbackRect();
+      if (!rect) {
+        this.host.dataset.playerVisible = "false";
+        this.boundsSignature = "";
+        return;
+      }
+      this.host.dataset.playerVisible = "true";
+      const bounds = {
+        left: Math.max(0, rect.left),
+        top: Math.max(0, rect.top),
+        width: Math.max(1, Math.min(window.innerWidth, rect.right) - Math.max(0, rect.left)),
+        height: Math.max(1, Math.min(window.innerHeight, rect.bottom) - Math.max(0, rect.top)),
+      };
+      const signature = [bounds.left, bounds.top, bounds.width, bounds.height]
+        .map((value) => Math.round(value * 10) / 10)
+        .join(":");
+      if (signature === this.boundsSignature) return;
+      this.boundsSignature = signature;
+      this.host.style.left = `${bounds.left}px`;
+      this.host.style.top = `${bounds.top}px`;
+      this.host.style.width = `${bounds.width}px`;
+      this.host.style.height = `${bounds.height}px`;
+      this.applyPlacements();
     }
 
     updateSettings(settings) {
@@ -463,8 +532,9 @@
         return;
       }
       const rect = node.getBoundingClientRect();
-      const viewportWidth = Math.max(window.innerWidth, 1);
-      const viewportHeight = Math.max(window.innerHeight, 1);
+      const hostRect = this.host.getBoundingClientRect();
+      const viewportWidth = Math.max(hostRect.width, 1);
+      const viewportHeight = Math.max(hostRect.height, 1);
       const minX = Math.min(0.5, ((rect.width / 2) + 8) / viewportWidth);
       const minY = Math.min(0.5, ((rect.height / 2) + 8) / viewportHeight);
       const x = Math.max(minX, Math.min(1 - minX, placement.x));
@@ -491,15 +561,18 @@
         event.preventDefault();
         const rect = node.getBoundingClientRect();
         const step = event.shiftKey ? 32 : 12;
-        const viewportWidth = Math.max(window.innerWidth, 1);
-        const viewportHeight = Math.max(window.innerHeight, 1);
+        const hostRect = this.host.getBoundingClientRect();
+        const viewportWidth = Math.max(hostRect.width, 1);
+        const viewportHeight = Math.max(hostRect.height, 1);
+        const localLeft = rect.left - hostRect.left;
+        const localTop = rect.top - hostRect.top;
         const centerX = Math.max(
           (rect.width / 2) + 8,
-          Math.min(viewportWidth - (rect.width / 2) - 8, rect.left + (rect.width / 2) + (movement[0] * step)),
+          Math.min(viewportWidth - (rect.width / 2) - 8, localLeft + (rect.width / 2) + (movement[0] * step)),
         );
         const centerY = Math.max(
           (rect.height / 2) + 8,
-          Math.min(viewportHeight - (rect.height / 2) - 8, rect.top + (rect.height / 2) + (movement[1] * step)),
+          Math.min(viewportHeight - (rect.height / 2) - 8, localTop + (rect.height / 2) + (movement[1] * step)),
         );
         const placement = { x: centerX / viewportWidth, y: centerY / viewportHeight };
         this.applyPlacement(node, placement, target);
@@ -530,15 +603,16 @@
         drag.moved = true;
         node.dataset.dragging = "true";
         event.preventDefault();
-        const viewportWidth = Math.max(window.innerWidth, 1);
-        const viewportHeight = Math.max(window.innerHeight, 1);
+        const hostRect = this.host.getBoundingClientRect();
+        const viewportWidth = Math.max(hostRect.width, 1);
+        const viewportHeight = Math.max(hostRect.height, 1);
         const centerX = Math.max(
           (drag.width / 2) + 8,
-          Math.min(viewportWidth - (drag.width / 2) - 8, event.clientX - drag.offsetX),
+          Math.min(viewportWidth - (drag.width / 2) - 8, event.clientX - hostRect.left - drag.offsetX),
         );
         const centerY = Math.max(
           (drag.height / 2) + 8,
-          Math.min(viewportHeight - (drag.height / 2) - 8, event.clientY - drag.offsetY),
+          Math.min(viewportHeight - (drag.height / 2) - 8, event.clientY - hostRect.top - drag.offsetY),
         );
         drag.placement = { x: centerX / viewportWidth, y: centerY / viewportHeight };
         this.applyPlacement(node, drag.placement, target);

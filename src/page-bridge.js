@@ -9,6 +9,7 @@
   const TRACK_VIDEOS = new WeakMap();
   const SELECTED_TRACKS = new WeakMap();
   const ORIGINAL_TRACK_MODES = new WeakMap();
+  const FETCHED_CAPTION_TRACKS = new Set();
   let captureEnabled = false;
   let shouldHideNative = true;
   let sourceLanguage = "en";
@@ -172,8 +173,92 @@
     syncVideoTracks(video);
   };
 
+  const isYouTubePage = () => {
+    const hostname = String(location.hostname || "").toLowerCase();
+    return hostname === "youtube.com"
+      || hostname.endsWith(".youtube.com")
+      || hostname.endsWith(".youtube-nocookie.com");
+  };
+
+  const youtubePlayerResponse = () => {
+    if (!isYouTubePage()) return null;
+    try {
+      const response = document.querySelector("#movie_player")?.getPlayerResponse?.();
+      if (response?.videoDetails?.videoId) return response;
+    } catch {
+      // YouTube can replace the player while navigating between videos.
+    }
+    return globalThis.ytInitialPlayerResponse || null;
+  };
+
+  const currentMediaKey = (requestUrl = "") => {
+    try {
+      const url = new URL(String(requestUrl || location.href), location.href);
+      const videoId = url.searchParams.get("v");
+      if (videoId && isYouTubePage()) return `youtube:${videoId}`;
+    } catch {
+      // A relative or malformed diagnostic URL does not need a media key.
+    }
+    const playerVideoId = youtubePlayerResponse()?.videoDetails?.videoId;
+    if (playerVideoId) return `youtube:${playerVideoId}`;
+    return location.href;
+  };
+
+  const youtubeTrackScore = (track, index) => {
+    const language = String(track?.languageCode || "").toLowerCase().replace(/_/g, "-");
+    const source = String(sourceLanguage || "en").toLowerCase().replace(/_/g, "-");
+    if (language !== source && !language.startsWith(`${source}-`)) return -Infinity;
+    let score = language === source ? 100 : 90;
+    if (track.kind !== "asr") score += 25;
+    if (track.isTranslatable === false) score += 1;
+    return score - (index / 1000);
+  };
+
+  const loadYouTubeCaptionTrack = async () => {
+    if (!captureEnabled || !isYouTubePage()) return;
+    const response = youtubePlayerResponse();
+    const tracks = response?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+    const selected = tracks
+      .map((track, index) => ({ track, score: youtubeTrackScore(track, index) }))
+      .filter((entry) => Number.isFinite(entry.score) && entry.track?.baseUrl)
+      .sort((left, right) => right.score - left.score)[0]?.track;
+    if (!selected) return;
+
+    const mediaKey = currentMediaKey(selected.baseUrl);
+    const requestKey = `${mediaKey}:${selected.baseUrl}`;
+    if (FETCHED_CAPTION_TRACKS.has(requestKey)) return;
+    if (FETCHED_CAPTION_TRACKS.size > 20) FETCHED_CAPTION_TRACKS.clear();
+    FETCHED_CAPTION_TRACKS.add(requestKey);
+
+    try {
+      const url = new URL(selected.baseUrl, location.href);
+      url.searchParams.set("fmt", "json3");
+      const captionResponse = await Reflect.apply(nativeFetch, window, [url.toString()]);
+      if (!captionResponse?.ok) {
+        throw new Error(`YouTube captions returned ${captionResponse?.status || "an error"}`);
+      }
+      await inspectResponse(captionResponse, url.toString(), {
+        captionKind: selected.kind || "subtitles",
+        captionLanguage: selected.languageCode || "",
+      });
+      post("YOUTUBE_TRACK_SELECTED", {
+        language: selected.languageCode || "",
+        label: selected.name?.simpleText || selected.name?.runs?.map((run) => run.text).join("") || "",
+        kind: selected.kind || "subtitles",
+        mediaKey,
+      });
+    } catch (error) {
+      FETCHED_CAPTION_TRACKS.delete(requestKey);
+      post("YOUTUBE_TRACK_ERROR", {
+        language: selected.languageCode || "",
+        message: error?.message || "Unable to load YouTube captions",
+      });
+    }
+  };
+
   const scanVideos = () => {
     for (const video of document.querySelectorAll("video")) scanVideo(video);
+    loadYouTubeCaptionTrack();
   };
 
   const isCandidateResource = (url, contentType = "") => {
@@ -181,14 +266,21 @@
     return /(caption|subtitle|timedtext|webvtt|\.vtt(?:\?|$)|\.ttml(?:\?|$)|\.dfxp(?:\?|$)|\.smi(?:\?|$)|\.smil(?:\?|$)|\.m3u8(?:\?|$)|text\/vtt|ttml\+xml)/i.test(value);
   };
 
-  const inspectResponse = async (response, requestUrl) => {
+  const inspectResponse = async (response, requestUrl, resourceDetail = {}) => {
     const url = response?.url || String(requestUrl || "");
     const contentType = response?.headers?.get?.("content-type") || "";
     if (!isCandidateResource(url, contentType)) return;
     try {
       const body = await response.clone().text();
       if (!body || body.length > 2_000_000) return;
-      post("NETWORK_RESOURCE", { url, contentType, body });
+      post("NETWORK_RESOURCE", {
+        ...resourceDetail,
+        url,
+        contentType,
+        body,
+        mediaKey: currentMediaKey(url),
+        pageUrl: location.href,
+      });
     } catch {
       // Opaque or streaming responses cannot be cloned as text.
     }
@@ -208,16 +300,27 @@
       const responseUrl = this.responseURL || this.__pstUrl;
       const contentType = this.getResponseHeader?.("content-type") || "";
       if (!isCandidateResource(responseUrl, contentType)) return;
+      let body = "";
       try {
-        if (typeof this.responseText === "string" && this.responseText.length <= 2_000_000) {
-          post("NETWORK_RESOURCE", {
-            url: responseUrl,
-            contentType,
-            body: this.responseText,
-          });
-        }
+        if (typeof this.responseText === "string") body = this.responseText;
       } catch {
-        // Some responseType values do not expose responseText.
+        // JSON response types throw when responseText is accessed.
+      }
+      if (!body) {
+        try {
+          if (this.response && typeof this.response === "object") body = JSON.stringify(this.response);
+        } catch {
+          // Non-serializable response bodies are not subtitle resources we can ingest.
+        }
+      }
+      if (body && body.length <= 2_000_000) {
+        post("NETWORK_RESOURCE", {
+          url: responseUrl,
+          contentType,
+          body,
+          mediaKey: currentMediaKey(responseUrl),
+          pageUrl: location.href,
+        });
       }
     }, { once: true });
     return Reflect.apply(nativeOpen, this, [method, url, ...rest]);
@@ -233,12 +336,19 @@
       shouldHideNative = Boolean(detail.hide);
       sourceLanguage = String(detail.sourceLanguage || sourceLanguage || "en");
       scanVideos();
+      post("BRIDGE_READY", { href: location.href });
     }
   });
 
   const observer = new MutationObserver(scanVideos);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-  scanVideos();
+  const startObserver = () => {
+    if (!document.documentElement) return;
+    document.documentElement.dataset.engramSubtitleBridge = "true";
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    scanVideos();
+  };
+  if (document.documentElement) startObserver();
+  else document.addEventListener("DOMContentLoaded", startObserver, { once: true });
   setInterval(scanVideos, 1200);
   post("BRIDGE_READY", { href: location.href });
 })();

@@ -39,7 +39,7 @@ test("Simplified Chinese can be selected and formats substitutions", () => {
 
   PST.setUiLanguage("zh-CN");
 
-  assert.equal(PST.t("brandName"), "英境");
+  assert.equal(PST.t("brandName"), "语痕");
   assert.equal(PST.t("connectedParamount", "WebVTT"), "已连接到 Paramount+ · WebVTT");
   assert.equal(document.documentElement.lang, "zh-CN");
 });

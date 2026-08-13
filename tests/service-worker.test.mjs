@@ -5,7 +5,12 @@ import vm from "node:vm";
 
 const workerSource = readFileSync(new URL("../src/service-worker.js", import.meta.url), "utf8");
 
-const createWorker = ({ fetchImpl, proxyUrl = "http://127.0.0.1:8787" }) => {
+const createWorker = ({
+  fetchImpl,
+  proxyUrl = "http://127.0.0.1:8787",
+  sessionStore = {},
+  tabsSendMessage = async () => ({}),
+}) => {
   let listener;
   const context = vm.createContext({
     AbortController,
@@ -26,18 +31,21 @@ const createWorker = ({ fetchImpl, proxyUrl = "http://127.0.0.1:8787" }) => {
           get: async () => ({ translationProxyUrl: proxyUrl }),
           remove: async () => undefined,
         },
-        session: { get: async () => ({}), set: async () => undefined },
+        session: {
+          get: async () => ({ ...sessionStore }),
+          set: async (patch) => { Object.assign(sessionStore, patch); },
+        },
         sync: { get: async () => ({}), set: async () => undefined },
       },
-      tabs: { sendMessage: async () => ({}) },
+      tabs: { sendMessage: tabsSendMessage },
     },
   });
   vm.runInContext(workerSource, context);
   return listener;
 };
 
-const send = (listener, message) => new Promise((resolve) => {
-  const asyncResponse = listener(message, {}, resolve);
+const send = (listener, message, sender = {}) => new Promise((resolve) => {
+  const asyncResponse = listener(message, sender, resolve);
   assert.equal(asyncResponse, true);
 });
 
@@ -129,4 +137,31 @@ test("proxy URL rejects insecure remote HTTP origins in the default English UI",
 
   assert.equal(response.ok, false);
   assert.match(response.error, /must use HTTPS/);
+});
+
+test("registers and routes diagnostics to a supported YouTube tab", async () => {
+  const sessionStore = {};
+  const routed = [];
+  const listener = createWorker({
+    fetchImpl: async () => assert.fail("fetch should not run"),
+    sessionStore,
+    tabsSendMessage: async (tabId, message) => {
+      routed.push({ tabId, message });
+      return { ok: true, site: { id: "youtube", name: "YouTube" } };
+    },
+  });
+
+  const registration = await send(
+    listener,
+    { type: "REGISTER_VIDEO_TAB", site: { id: "youtube", name: "YouTube" } },
+    { tab: { id: 42 } },
+  );
+  const status = await send(listener, { type: "GET_VIDEO_STATUS" });
+
+  assert.equal(registration.tabId, 42);
+  assert.equal(sessionStore.lastVideoTabId, 42);
+  assert.equal(status.site.name, "YouTube");
+  assert.equal(routed.length, 1);
+  assert.equal(routed[0].tabId, 42);
+  assert.equal(routed[0].message.type, "GET_STATUS");
 });

@@ -1,9 +1,20 @@
 (() => {
   const root = globalThis.ParamountSubtitles || {};
 
-  root.VERSION = "0.5.0";
+  root.VERSION = "0.6.0";
   root.BRIDGE_SOURCE = "paramount-subtitle-page-bridge";
   root.CONTENT_SOURCE = "paramount-subtitle-content";
+
+  root.detectVideoSite = (hostname = globalThis.location?.hostname) => {
+    const value = String(hostname || "").toLowerCase();
+    if (value === "youtu.be" || value === "youtube.com" || value.endsWith(".youtube.com") || value.endsWith(".youtube-nocookie.com")) {
+      return { id: "youtube", name: "YouTube" };
+    }
+    if (value === "paramountplus.com" || value.endsWith(".paramountplus.com")) {
+      return { id: "paramount", name: "Paramount+" };
+    }
+    return { id: "unknown", name: "Video" };
+  };
 
   root.normalizeSubtitle = (value) => String(value || "")
     .replace(/<[^>]+>/g, "")
