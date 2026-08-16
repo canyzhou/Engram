@@ -592,6 +592,10 @@
     }
 
     largestVideo() {
+      if (
+        PST.detectVideoSite?.().id === "youtube"
+        && PST.isYouTubePlaybackPage?.() === false
+      ) return undefined;
       return [...document.querySelectorAll("video")]
         .map((video) => ({ video, rect: video.getBoundingClientRect() }))
         .filter(({ rect }) => rect.width > 300 && rect.height > 150)
@@ -763,6 +767,7 @@
         if (becameReady) this.configure();
         this.dispatchEvent(new CustomEvent("status", { detail: this.status() }));
       } else if (type === "TEXT_TRACK_CUE") {
+        if (PST.detectVideoSite?.().id === "youtube" && PST.isYouTubePlaybackPage?.() === false) return;
         if (this.timeline.preferredSource.startsWith("YouTube")) return;
         this.accept({
           text: detail.text,
@@ -772,6 +777,7 @@
           videoTime: detail.currentTime,
         });
       } else if (type === "NETWORK_RESOURCE") {
+        if (PST.detectVideoSite?.().id === "youtube" && PST.isYouTubePlaybackPage?.() === false) return;
         const result = this.timeline.ingest(detail);
         if (result.format.startsWith("YouTube")) {
           this.dom.setTimelineAvailable(result.cueCount > 0);
@@ -815,7 +821,7 @@
     }
 
     pollNetworkTimeline() {
-      const video = document.querySelector("video");
+      const video = this.dom.largestVideo()?.video;
       if (!video || !Number.isFinite(video.currentTime)) return;
       const cue = this.timeline.at(video.currentTime);
       if (cue) {

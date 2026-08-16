@@ -441,6 +441,10 @@
     }
 
     playbackRect() {
+      if (
+        PST.detectVideoSite?.().id === "youtube"
+        && PST.isYouTubePlaybackPage?.() === false
+      ) return null;
       const candidates = [...document.querySelectorAll("video")]
         .map((video) => ({ video, rect: video.getBoundingClientRect() }))
         .filter(({ video, rect }) => (

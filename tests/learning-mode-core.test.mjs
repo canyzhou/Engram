@@ -71,8 +71,8 @@ test("analysis keeps 5–8 categorized learning items and concise timeline segme
   assert.equal(result.discussionQuestions.source[0].evidence[0].sourceText, cues[0].text);
 });
 
-test("rejects hallucinated expressions that do not exist in the transcript", () => {
-  assert.throws(() => Core.sanitizeAnalysis({
+test("drops hallucinated optional items without rejecting the material analysis", () => {
+  const result = Core.sanitizeAnalysis({
     expressions: [
       { expression: "invented phrase" },
       { expression: "second phrase" },
@@ -81,7 +81,10 @@ test("rejects hallucinated expressions that do not exist in the transcript", () 
   }, {
     cues: [{ start: 0, end: 3, text: "A real subtitle." }],
     duration: 3,
-  }), /5–8 个可定位学习项/);
+  });
+  assert.equal(result.learningItems.length, 0);
+  assert.equal(result.timelineSegments.length, 0);
+  assert.equal(result.learningOutcomes.length, 2);
 });
 
 test("formats short and hour-long timestamps", () => {

@@ -195,6 +195,34 @@ test("keeps bridge readiness separate from capture configuration", () => {
   );
 });
 
+test("ignores YouTube feed preview videos and leaves their caption tracks untouched", async () => {
+  const english = new FakeTrack({ language: "en", label: "English" });
+  const bridge = createBridge([english], {
+    href: "https://www.youtube.com/",
+    playerResponse: {
+      videoDetails: { videoId: "feed-preview" },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{
+            languageCode: "en",
+            baseUrl: "https://www.youtube.com/api/timedtext?v=feed-preview&lang=en",
+          }],
+        },
+      },
+    },
+  });
+
+  bridge.configure({ enabled: true, hide: true, sourceLanguage: "en" });
+  english.activeCues = [{ text: "Preview caption", startTime: 1, endTime: 3 }];
+  english.dispatch("cuechange");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(english.mode, "disabled");
+  assert.equal(bridge.requests.length, 0);
+  assert.equal(bridge.messages.some((message) => message.type === "TEXT_TRACK_CUE"), false);
+  assert.equal(bridge.messages.some((message) => message.type === "NETWORK_RESOURCE"), false);
+});
+
 test("settles the ready and configure handshake without a message loop", () => {
   const bridge = createBridge([]);
   let bridgeReady = false;

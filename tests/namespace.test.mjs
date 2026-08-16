@@ -8,6 +8,7 @@ const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta
 const context = vm.createContext({
   Math,
   String,
+  URL,
   globalThis: null,
 });
 context.globalThis = context;
@@ -21,6 +22,17 @@ test("recognizes YouTube and Paramount+ as supported video sites", () => {
   assert.equal(detect("www.youtube-nocookie.com").id, "youtube");
   assert.equal(detect("www.paramountplus.com").name, "Paramount+");
   assert.equal(detect("example.com").id, "unknown");
+});
+
+test("distinguishes YouTube playback routes from feed thumbnail previews", () => {
+  const isPlayback = context.ParamountSubtitles.isYouTubePlaybackPage;
+
+  assert.equal(isPlayback("https://www.youtube.com/watch?v=video-123"), true);
+  assert.equal(isPlayback("https://www.youtube.com/shorts/video-123"), true);
+  assert.equal(isPlayback("https://www.youtube-nocookie.com/embed/video-123"), true);
+  assert.equal(isPlayback("https://www.youtube.com/"), false);
+  assert.equal(isPlayback("https://www.youtube.com/results?search_query=travel"), false);
+  assert.equal(isPlayback("https://www.youtube.com/watch"), false);
 });
 
 test("removes only explicit bracketed music cues from learning subtitles", () => {

@@ -30,6 +30,7 @@
     .trim();
 
   const emitTrackCue = (track) => {
+    if (isYouTubePage() && !isYouTubePlaybackPage()) return;
     const cues = Array.from(track.activeCues || []);
     const text = normalize(cues.map((cue) => cue.text || "").join("\n"));
     const lastCue = cues.at(-1);
@@ -185,6 +186,17 @@
       || hostname.endsWith(".youtube-nocookie.com");
   };
 
+  const isYouTubePlaybackPage = () => {
+    let url;
+    try {
+      url = new URL(location.href);
+    } catch {
+      return false;
+    }
+    if (/^\/(?:shorts|embed|live|clip)\/[\w-]+(?:\/|$)/.test(url.pathname)) return true;
+    return url.pathname === "/watch" && Boolean(url.searchParams.get("v"));
+  };
+
   const youtubePlayer = () => document.querySelector("#movie_player");
 
   const youtubePlayerResponse = () => {
@@ -248,7 +260,7 @@
 
   const inspectYouTubePlayerRequest = async (input, init = {}) => {
     const requestUrl = input instanceof Request ? input.url : String(input || "");
-    if (!/\/youtubei\/v1\/player(?:[/?]|$)/i.test(requestUrl)) return;
+    if (!isYouTubePlaybackPage() || !/\/youtubei\/v1\/player(?:[/?]|$)/i.test(requestUrl)) return;
     let body = init?.body;
     if (!body && input instanceof Request) {
       try {
@@ -377,7 +389,7 @@
   };
 
   const loadYouTubeCaptionTrack = async () => {
-    if (!captureEnabled || !isYouTubePage()) return;
+    if (!captureEnabled || !isYouTubePage() || !isYouTubePlaybackPage()) return;
     const response = youtubePlayerResponse();
     const tracks = response?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
     const selected = tracks
@@ -473,6 +485,14 @@
   };
 
   const scanVideos = () => {
+    if (isYouTubePage() && !isYouTubePlaybackPage()) {
+      restoreYouTubeNativeCaptions();
+      for (const video of document.querySelectorAll("video")) {
+        for (const track of Array.from(video.textTracks || [])) restoreTrackMode(track);
+        SELECTED_TRACKS.delete(video);
+      }
+      return;
+    }
     for (const video of document.querySelectorAll("video")) scanVideo(video);
     loadYouTubeCaptionTrack();
   };
@@ -529,6 +549,7 @@
   };
 
   const inspectResponse = async (response, requestUrl, resourceDetail = {}) => {
+    if (isYouTubePage() && !isYouTubePlaybackPage()) return { ok: false, reason: "not_playback_page" };
     const url = response?.url || String(requestUrl || "");
     const contentType = response?.headers?.get?.("content-type") || "";
     const {
@@ -570,6 +591,7 @@
   XMLHttpRequest.prototype.open = function paramountSubtitleOpen(method, url, ...rest) {
     this.__pstUrl = String(url || "");
     this.addEventListener("load", function inspectSubtitleXhr() {
+      if (isYouTubePage() && !isYouTubePlaybackPage()) return;
       const responseUrl = this.responseURL || this.__pstUrl;
       const contentType = this.getResponseHeader?.("content-type") || "";
       if (!isCandidateResource(responseUrl, contentType)) return;
@@ -603,7 +625,7 @@
   const nativeSend = XMLHttpRequest.prototype.send;
   if (typeof nativeSend === "function") {
     XMLHttpRequest.prototype.send = function paramountSubtitleSend(body) {
-      rememberYouTubePoToken(this.__pstUrl, body);
+      if (!isYouTubePage() || isYouTubePlaybackPage()) rememberYouTubePoToken(this.__pstUrl, body);
       return Reflect.apply(nativeSend, this, [body]);
     };
   }

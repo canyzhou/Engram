@@ -16,6 +16,21 @@
     return { id: "unknown", name: "Video" };
   };
 
+  root.isYouTubePlaybackPage = (locationLike = globalThis.location) => {
+    let url;
+    try {
+      url = locationLike instanceof URL
+        ? locationLike
+        : new URL(String(locationLike?.href || locationLike || ""), "https://www.youtube.com/");
+    } catch {
+      return false;
+    }
+    if (root.detectVideoSite(url.hostname).id !== "youtube") return false;
+    if (url.hostname === "youtu.be") return /^\/[\w-]{6,}(?:\/|$)/.test(url.pathname);
+    if (/^\/(?:shorts|embed|live|clip)\/[\w-]+(?:\/|$)/.test(url.pathname)) return true;
+    return url.pathname === "/watch" && Boolean(url.searchParams.get("v"));
+  };
+
   // Caption providers may expose accessibility sound cues and repeated
   // chevrons used to announce a speaker change. Keep this deliberately narrow:
   // arbitrary bracketed text and a single comparison chevron may be useful

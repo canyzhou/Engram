@@ -273,13 +273,11 @@
       const end = clamp(Number(range?.end) || start, start, maximum);
       return { start, end };
     };
-    const sanitizeTextList = (value, minimum = 2, { requireChinese = false } = {}) => {
-      const items = (Array.isArray(value) ? value : []).map((item) => (
+    const sanitizeTextList = (value, { requireChinese = false } = {}) => (
+      (Array.isArray(value) ? value : []).map((item) => (
         String(item || "").replace(/\s+/g, " ").trim().slice(0, 220)
-      )).filter((item) => item && (!requireChinese || includesChinese(item))).slice(0, 3);
-      if (items.length < minimum) throw new Error("材料分析缺少具体的适合原因或学习收获");
-      return items;
-    };
+      )).filter((item) => item && (!requireChinese || includesChinese(item))).slice(0, 3)
+    );
     const categories = new Set(["word", "grammar", "pattern", "idiom", "slang"]);
     const sourceItems = Array.isArray(input.learningItems) ? input.learningItems : input.expressions;
     const learningItems = (Array.isArray(sourceItems) ? sourceItems : []).slice(0, 8).map((item) => {
@@ -307,17 +305,21 @@
       candidate.expression.toLowerCase() === item.expression.toLowerCase()
       && candidate.timestamp === item.timestamp
     )) === index);
-    if (learningItems.length < 5) throw new Error("材料分析必须包含 5–8 个可定位学习项");
-
     let recommendedRange = normalizeRange(input.recommendedRange);
     const timelineSegments = (Array.isArray(input.timelineSegments) ? input.timelineSegments : []).slice(0, 4).map((item) => {
       const sourceText = String(item?.sourceText || "").replace(/\s+/g, " ").trim();
       const requestedTime = Number(item?.timestamp ?? item?.start);
       const matches = normalizedCues.filter((cue) => cue.text === sourceText);
-      const source = matches.sort((left, right) => Math.abs(left.start - requestedTime) - Math.abs(right.start - requestedTime))[0];
+      const candidates = matches.length ? matches : normalizedCues;
+      const source = Number.isFinite(requestedTime)
+        ? candidates.sort((left, right) => Math.abs(left.start - requestedTime) - Math.abs(right.start - requestedTime))[0]
+        : matches[0];
       if (!source) return null;
-      const range = normalizeRange({ start: item?.start ?? source.start, end: item?.end ?? source.end });
-      if (range.end <= range.start || source.start < range.start - 0.5 || source.start > range.end + 0.5) return null;
+      let range = normalizeRange({ start: item?.start ?? source.start, end: item?.end ?? source.end });
+      if (range.end <= range.start) range = { start: source.start, end: source.end };
+      else if (source.start < range.start - 0.5 || source.start > range.end + 0.5) {
+        range = { start: Math.min(range.start, source.start), end: Math.max(range.end, source.end) };
+      }
       const title = String(item?.title || "").replace(/\s+/g, " ").trim().slice(0, 80);
       const focus = String(item?.focus || "").replace(/\s+/g, " ").trim().slice(0, 160);
       return {
@@ -332,11 +334,15 @@
     }).filter(Boolean).filter((item, index, items) => items.findIndex((candidate) => (
       candidate.start === item.start && candidate.end === item.end
     )) === index).sort((left, right) => left.start - right.start);
-    if (timelineSegments.length < 2) throw new Error("材料分析必须包含至少两个有字幕依据的难度片段");
     if (recommendedRange.end <= recommendedRange.start) {
-      recommendedRange = { start: timelineSegments[0].start, end: timelineSegments[0].end };
+      const fallbackCue = normalizedCues.find((cue) => cue.start === learningItems[0]?.timestamp) || normalizedCues[0];
+      recommendedRange = timelineSegments[0]
+        ? { start: timelineSegments[0].start, end: timelineSegments[0].end }
+        : { start: fallbackCue.start, end: fallbackCue.end };
     }
     const coverageMatches = Number(input.coverage?.cueCount) === normalizedCues.length;
+    const fitReasons = sanitizeTextList(input.fitReasons);
+    const learningOutcomes = sanitizeTextList(input.learningOutcomes, { requireChinese: true });
 
     return {
       localFallback: Boolean(input.localFallback),
@@ -346,8 +352,10 @@
       speechLevel: sanitizeLevel(input.speechLevel, "B1+"),
       syntaxLevel: sanitizeLevel(input.syntaxLevel, "B2"),
       fitVerdict: String(input.fitVerdict || "有挑战，但适合精学").replace(/\s+/g, " ").trim().slice(0, 40),
-      fitReasons: sanitizeTextList(input.fitReasons),
-      learningOutcomes: sanitizeTextList(input.learningOutcomes, 2, { requireChinese: true }),
+      fitReasons: fitReasons.length ? fitReasons : ["可结合完整字幕判断材料难度。"],
+      learningOutcomes: learningOutcomes.length
+        ? learningOutcomes
+        : ["结合字幕理解视频内容。", "从真实语境中积累可复用表达。"],
       studyMinutes: clamp(Math.round(Number(input.studyMinutes) || 12), 3, 45),
       recommendedRange,
       difficultRanges: timelineSegments.map(({ start, end }) => ({ start, end })),

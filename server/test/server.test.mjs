@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   buildDeepSeekRequest,
   buildLessonAnalysisRequest,
-  buildLessonAnalysisRepairRequest,
   buildLessonDiscussionRequest,
   buildWordLookupRequest,
   createTranslationServer,
@@ -178,19 +177,6 @@ test("builds a fixed grounded lesson analysis request", () => {
   assert.match(upstream.messages[0].content, /模仿 Engoo Daily News 的提问节奏/);
   assert.match(upstream.messages[0].content, /每题尽量不超过 22 个英文词/);
   assert.match(upstream.messages[1].content, /go on a hike/);
-});
-
-test("builds a full repair request for an incomplete lesson analysis", () => {
-  const request = normalizeLessonAnalysisRequest({ learnerLevel: "B1", video: { duration: 120 }, cues: lessonCues });
-  const upstream = buildLessonAnalysisRepairRequest(request, { materialLevel: "B2" }, "上游没有返回完整的学习收获");
-  const payload = JSON.parse(upstream.messages[1].content);
-
-  assert.match(upstream.messages[0].content, /完整修正版/);
-  assert.match(upstream.messages[0].content, /5–8 项/);
-  assert.match(upstream.messages[0].content, /各有五个/);
-  assert.match(payload.validation_error, /学习收获/);
-  assert.deepEqual(payload.previous_candidate, { materialLevel: "B2" });
-  assert.equal(payload.transcript.length, lessonCues.length);
 });
 
 test("anchors 5–8 lesson items and concise timeline segments to real subtitle timestamps", () => {
@@ -455,7 +441,7 @@ test("serves a structured and grounded lesson analysis", async () => {
   assert.equal(payload.analysis.discussionQuestions.source.length, 5);
 });
 
-test("repairs an incomplete lesson analysis once instead of returning a generic fallback", async () => {
+test("returns a partial lesson analysis without a second upstream repair call", async () => {
   const completeAnalysis = {
     materialLevel: "B2",
     vocabularyLevel: "B2",
@@ -480,16 +466,18 @@ test("repairs an incomplete lesson analysis once instead of returning a generic 
     ],
   };
   let upstreamCalls = 0;
-  let repairBody;
   const server = createTranslationServer({
     env: { DEEPSEEK_API_KEY: "sk-test" },
     fetchImpl: async (_url, options) => {
       upstreamCalls += 1;
-      const body = JSON.parse(options.body);
-      if (upstreamCalls === 2) repairBody = body;
-      const result = upstreamCalls === 1
-        ? { ...completeAnalysis, learningOutcomes: [] }
-        : completeAnalysis;
+      JSON.parse(options.body);
+      const result = {
+        ...completeAnalysis,
+        learningOutcomes: [],
+        learningItems: [{ category: "word", expression: "invented phrase", meaningZh: "虚构", timestamp: 10 }],
+        timelineSegments: [],
+        discussionQuestions: { source: [], advanced: [] },
+      };
       return {
         ok: true,
         json: async () => ({ choices: [{ message: { content: JSON.stringify(result) } }] }),
@@ -503,10 +491,11 @@ test("repairs an incomplete lesson analysis once instead of returning a generic 
   });
 
   assert.equal(status, 200);
-  assert.equal(upstreamCalls, 2);
-  assert.match(repairBody.messages[0].content, /结果修复器/);
-  assert.deepEqual(payload.analysis.learningOutcomes, completeAnalysis.learningOutcomes);
-  assert.equal(payload.analysis.learningItems[0].meaningZh, "去徒步");
+  assert.equal(upstreamCalls, 1);
+  assert.deepEqual(payload.analysis.learningOutcomes, []);
+  assert.deepEqual(payload.analysis.learningItems, []);
+  assert.deepEqual(payload.analysis.timelineSegments, []);
+  assert.deepEqual(payload.analysis.discussionQuestions, { source: [], advanced: [] });
 });
 
 test("analyzes every cue in a long transcript through grounded chunks without silently truncating", async () => {

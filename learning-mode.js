@@ -134,9 +134,11 @@
     vocabularyLevel: document.querySelector("#vocabulary-level"),
     speechLevel: document.querySelector("#speech-level"),
     syntaxLevel: document.querySelector("#syntax-level"),
+    expressionSection: document.querySelector(".expression-section"),
     expressionList: document.querySelector("#expression-list"),
     learningItemCount: document.querySelector("#learning-item-count"),
     difficultyTimeline: document.querySelector("#difficulty-timeline"),
+    timelineSection: document.querySelector(".difficulty-timeline-section"),
     timelineSegmentList: document.querySelector("#timeline-segment-list"),
     recommendedRange: document.querySelector("#recommended-range"),
     transcriptSearch: document.querySelector("#transcript-search"),
@@ -400,6 +402,7 @@
       slang: "俚语",
     };
     elements.learningItemCount.textContent = `${analysis.learningItems.length} 项`;
+    elements.expressionSection.hidden = analysis.learningItems.length === 0;
     elements.expressionList.replaceChildren(...analysis.learningItems.map((item) => {
       const button = document.createElement("button");
       button.className = "expression-row";
@@ -417,6 +420,7 @@
     }));
     const duration = Math.max(1, state.duration);
     const timelineSegments = analysis.timelineSegments.slice(0, 4);
+    elements.timelineSection.hidden = timelineSegments.length === 0;
     elements.difficultyTimeline.replaceChildren(...timelineSegments.map((segment) => {
       const marker = document.createElement("button");
       marker.className = "timeline-range";
@@ -475,14 +479,14 @@
       }
       if (response.completeTimeline && nextCues.length >= 3) {
         state.contextRetrying = false;
-        await loadAnalysis({ force: true, allowPartial: false });
+        await loadAnalysis({ allowPartial: false });
         return;
       }
     }
     state.contextRetrying = false;
     if (state.destroyed) return;
     if (state.cues.length >= 3) {
-      await loadAnalysis({ force: true, allowPartial: true });
+      await loadAnalysis({ allowPartial: true });
       return;
     }
     elements.analysisLoading.hidden = true;

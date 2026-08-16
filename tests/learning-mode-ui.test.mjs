@@ -30,7 +30,16 @@ test("analysis prioritizes concise Chinese outcomes and grounded learning contro
   assert.match(script, /elements\.useLocalAnalysis\.addEventListener\("click", renderLocalAnalysis\)/);
   assert.match(script, /elements\.refreshAnalysis\.addEventListener\("click", \(\) => loadAnalysis\(\{ force: true \}\)\)/);
   assert.match(script, /elements\.analysisSource\.hidden = !analysis\.localFallback/);
+  assert.match(script, /elements\.expressionSection\.hidden = analysis\.learningItems\.length === 0/);
+  assert.match(script, /elements\.timelineSection\.hidden = timelineSegments\.length === 0/);
   assert.doesNotMatch(script, /catch \(error\) \{\s*try \{\s*state\.analysis = Core\.sanitizeAnalysis\(Core\.createFallbackAnalysis/);
+});
+
+test("automatic subtitle completion reuses cached analysis while explicit refresh bypasses it", () => {
+  assert.match(script, /response\.completeTimeline[\s\S]*?loadAnalysis\(\{ allowPartial: false \}\)/);
+  assert.match(script, /state\.cues\.length >= 3[\s\S]*?loadAnalysis\(\{ allowPartial: true \}\)/);
+  assert.match(script, /retryAnalysis\.addEventListener\("click", \(\) => loadAnalysis\(\{ force: true \}\)\)/);
+  assert.match(script, /refreshAnalysis\.addEventListener\("click", \(\) => loadAnalysis\(\{ force: true \}\)\)/);
 });
 
 test("discussion tab previews a lesson outline before the guided session", () => {
