@@ -415,6 +415,12 @@
     simulate: (text) => capture.simulate(text),
   };
 
-  if (document.documentElement) mount();
-  else document.addEventListener("DOMContentLoaded", mount, { once: true });
+  const startMount = () => {
+    mount().catch((error) => {
+      if (!PST.isExtensionContextInvalidated(error)) console.error("[Engram] 初始化失败", error);
+    });
+  };
+
+  if (document.documentElement) startMount();
+  else document.addEventListener("DOMContentLoaded", startMount, { once: true });
 })();

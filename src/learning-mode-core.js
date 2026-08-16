@@ -89,54 +89,77 @@
     ));
   };
 
+  const createGroundedQuestion = (text, cue) => ({
+    text,
+    evidence: cue ? [{ timestamp: cue.start, sourceText: cue.text }] : [],
+  });
+
   const createDiscussionQuestions = (videoTitle = "this video", cues = []) => {
     const title = String(videoTitle || "this video").replace(/\s+/g, " ").trim().slice(0, 160) || "this video";
-    const anchors = selectDiscussionCues(cues).map((cue) => clipDiscussionQuote(cue.text));
-    if (anchors.length === 5) {
+    const anchorCues = selectDiscussionCues(cues);
+    const anchors = anchorCues.map((cue) => clipDiscussionQuote(cue.text));
+    if (anchorCues.length === 5) {
       return {
         source: [
-          `The speaker mentions “${anchors[0]}.” What are your thoughts on this?`,
-          `Why is “${anchors[1]}” important in the video?`,
-          `Which example in the video best shows “${anchors[2]}”?`,
-          `Have you ever tried the idea in “${anchors[3]}”? What happened?`,
-          `When would “${anchors[4]}” be most useful?`,
+          createGroundedQuestion(`The speaker mentions “${anchors[0]}.” What are your thoughts on this?`, anchorCues[0]),
+          createGroundedQuestion(`Why is “${anchors[1]}” important in the video?`, anchorCues[1]),
+          createGroundedQuestion(`Which example in the video best shows “${anchors[2]}”?`, anchorCues[2]),
+          createGroundedQuestion(`Have you ever tried the idea in “${anchors[3]}”? What happened?`, anchorCues[3]),
+          createGroundedQuestion(`When would “${anchors[4]}” be most useful?`, anchorCues[4]),
         ],
         advanced: [
-          `What part of “${title}” seems most difficult in practice?`,
-          "Do you usually plan this kind of task in advance, or decide as you go?",
-          "What simple tool or habit would help someone get a better result?",
-          "Who have you seen do this especially well? What did they do?",
-          "If you tried one idea from the video this weekend, what exactly would you do?",
+          createGroundedQuestion(`What part of “${title}” seems most difficult in practice?`, anchorCues[0]),
+          createGroundedQuestion("Do you usually plan this kind of task in advance, or decide as you go?", anchorCues[1]),
+          createGroundedQuestion("What simple tool or habit would help someone get a better result?", anchorCues[2]),
+          createGroundedQuestion("Who have you seen do this especially well? What did they do?", anchorCues[3]),
+          createGroundedQuestion("If you tried one idea from the video this weekend, what exactly would you do?", anchorCues[4]),
         ],
       };
     }
+    const fallbackCue = normalizeCues(cues)[0] || null;
     return {
       source: [
-        `What specific problem is the speaker trying to solve in “${title}”?`,
-        "Which technique from the video would you most like to try?",
-        "Why does the speaker recommend that technique?",
-        "Have you tried anything similar before? What happened?",
-        "When would this technique be most useful?",
+        createGroundedQuestion(`What specific problem is the speaker trying to solve in “${title}”?`, fallbackCue),
+        createGroundedQuestion("Which technique from the video would you most like to try?", fallbackCue),
+        createGroundedQuestion("Why does the speaker recommend that technique?", fallbackCue),
+        createGroundedQuestion("Have you tried anything similar before? What happened?", fallbackCue),
+        createGroundedQuestion("When would this technique be most useful?", fallbackCue),
       ],
       advanced: [
-        `What part of “${title}” seems most difficult in practice?`,
-        "Do you usually plan this kind of task in advance, or decide as you go?",
-        "What simple tool or habit would help someone get a better result?",
-        "Who have you seen do this especially well? What did they do?",
-        "If you tried one idea from the video this weekend, what exactly would you do?",
+        createGroundedQuestion(`What part of “${title}” seems most difficult in practice?`, fallbackCue),
+        createGroundedQuestion("Do you usually plan this kind of task in advance, or decide as you go?", fallbackCue),
+        createGroundedQuestion("What simple tool or habit would help someone get a better result?", fallbackCue),
+        createGroundedQuestion("Who have you seen do this especially well? What did they do?", fallbackCue),
+        createGroundedQuestion("If you tried one idea from the video this weekend, what exactly would you do?", fallbackCue),
       ],
     };
   };
 
   const sanitizeDiscussionQuestions = (input, videoTitle, cues = []) => {
+    const normalizedCues = normalizeCues(cues);
     const fallback = createDiscussionQuestions(videoTitle, cues);
     const sanitizeSet = (value, defaults) => {
-      const questions = (Array.isArray(value) ? value : []).map((item) => (
-        String(item || "").replace(/\s+/g, " ").trim().slice(0, 280)
-      )).filter(Boolean).slice(0, 5);
+      const questions = (Array.isArray(value) ? value : []).map((item, index) => {
+        const text = String(typeof item === "string" ? item : item?.text || "")
+          .replace(/\s+/g, " ").trim().slice(0, 280);
+        if (!text) return null;
+        const evidence = (Array.isArray(item?.evidence) ? item.evidence : []).slice(0, 2).map((entry) => {
+          const sourceText = String(entry?.sourceText || entry?.text || "").replace(/\s+/g, " ").trim();
+          const requestedTime = Number(entry?.timestamp ?? entry?.start);
+          const matches = normalizedCues.filter((cue) => cue.text === sourceText);
+          const cue = matches.sort((left, right) => (
+            Math.abs(left.start - requestedTime) - Math.abs(right.start - requestedTime)
+          ))[0];
+          return cue ? { timestamp: cue.start, sourceText: cue.text } : null;
+        }).filter(Boolean);
+        return {
+          text,
+          evidence: evidence.length ? evidence : (defaults[index]?.evidence || []),
+        };
+      }).filter(Boolean).slice(0, 5);
       for (const question of defaults) {
         if (questions.length === 5) break;
-        if (!questions.includes(question)) questions.push(question);
+        if (!questions.some((item) => item.text === question.text)) questions.push(question);
       }
       return questions;
     };

@@ -150,6 +150,34 @@ test("reads ahead beyond the old fixed duration to preserve a full semantic sent
   assert.ok(result[0].end > 10);
 });
 
+test("splits an oversized sentence at a natural pause before the subtitle is clipped", () => {
+  const aggregate = context.ParamountSubtitles.aggregateYouTubeAutoCues;
+  const sentence = "Solo filmmaking definitely has a learning curve, but I think that's what makes it so rewarding because it forces you to start with story first, to think in structure instead of shots, and to build stronger videos over time.";
+  const words = sentence.split(" ");
+  const result = aggregate(words.map((text, index) => ({
+    start: index * 0.35,
+    end: (index * 0.35) + 0.8,
+    text,
+  })));
+
+  assert.deepEqual([...result].map(({ text }) => text), [
+    "Solo filmmaking definitely has a learning curve, but I think that's what makes it so rewarding because it forces you to start with story first,",
+    "to think in structure instead of shots, and to build stronger videos over time.",
+  ]);
+  assert.equal(result.map(({ text }) => text).join(" "), sentence);
+  assert.ok(result.every(({ text }) => text.length <= 170));
+});
+
+test("falls back to a word boundary when an oversized subtitle has no natural pause", () => {
+  const sentence = Array.from({ length: 48 }, (_, index) => `word${index + 1}`).join(" ");
+  const split = context.ParamountSubtitles.splitLongCaptionText(sentence);
+  const parts = [...split.complete, split.remainder].filter(Boolean);
+
+  assert.ok(parts.length > 1);
+  assert.ok(parts.every((part) => part.length <= 170));
+  assert.equal(parts.join(" "), sentence);
+});
+
 test("splits multiple complete sentences while retaining unfinished trailing context", () => {
   const aggregate = context.ParamountSubtitles.aggregateYouTubeAutoCues;
   const result = aggregate([

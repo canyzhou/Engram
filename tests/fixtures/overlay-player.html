@@ -4,18 +4,19 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Engram player-bound overlay QA</title>
-    <link rel="stylesheet" href="../../src/learning-workspace-page.css">
+    <link rel="stylesheet" href="../../src/learning-workspace-page.css?v=responsive-player-1">
     <style>
       * { box-sizing: border-box; }
       html, body { min-height: 100%; margin: 0; background: #0f0f0f; color: #fff; font-family: system-ui, sans-serif; }
       ytd-app, ytd-page-manager, ytd-watch-flexy { display: block; }
       .toolbar { display: flex; gap: 10px; padding: 14px 24px; }
       button { padding: 8px 13px; border: 0; border-radius: 8px; font: inherit; cursor: pointer; }
-      .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; padding: 0 24px; }
+      .layout { display: grid; min-width: 1008px; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; padding: 0 24px; }
       body[data-wide="true"] .layout { grid-template-columns: minmax(0, 1fr); }
       body[data-wide="true"] aside { display: none; }
       .player {
         position: relative;
+        min-width: 640px;
         aspect-ratio: 16 / 9;
         overflow: hidden;
         background:
@@ -46,7 +47,7 @@
           <div class="layout" id="columns">
             <div id="primary">
               <div id="primary-inner">
-                <main class="player">
+                <main class="player" id="player-container-outer">
                   <video></video>
                   <div class="ytp-right-controls" data-pst-youtube-controls>
                     <button class="mock-ytp-button" type="button" aria-label="YouTube settings">⚙</button>
@@ -72,7 +73,7 @@
     <script src="../../src/player-settings.js"></script>
     <script src="../../src/capture.js"></script>
     <script src="../../src/overlay.js?v=hover-lookup-1"></script>
-    <script src="../../src/learning-workspace-shell.js?v=hover-lookup-1"></script>
+    <script src="../../src/learning-workspace-shell.js?v=panel-resize-1"></script>
     <script>
       const PST = globalThis.ParamountSubtitles;
       const settingsStore = new PST.SettingsStore();
@@ -141,6 +142,16 @@
       globalThis.qaPlayerSettings = playerSettings;
       if (new URLSearchParams(location.search).get("engram_learning") === "1") {
         const workspaceVideo = document.querySelector("video");
+        const mockPlayer = document.querySelector(".player");
+        const syncMockPlayerWidth = () => {
+          const primaryWidth = document.querySelector("#primary")?.getBoundingClientRect().width || 0;
+          if (primaryWidth > 0) mockPlayer.style.width = `${primaryWidth}px`;
+          document.body.dataset.mockPlayerWidth = String(Math.round(primaryWidth));
+        };
+        // YouTube recalculates its internal player size in response to window
+        // resize events rather than observing the page shell's width directly.
+        window.addEventListener("resize", syncMockPlayerWidth);
+        requestAnimationFrame(syncMockPlayerWidth);
         let workspaceTime = 30;
         let workspacePaused = true;
         workspaceVideo.classList.add("html5-main-video");

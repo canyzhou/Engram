@@ -31,6 +31,8 @@
     previewSentence: document.querySelector("#preview-sentence"),
     emptyPreview: document.querySelector("#empty-preview"),
     saveStatus: document.querySelector("#save-status"),
+    mobileNavButton: document.querySelector("#mobile-nav-button"),
+    sidebar: document.querySelector(".sidebar"),
   };
   const saveStatusCopy = elements.saveStatus.querySelector("[data-i18n]");
   const hasExtensionApi = Boolean(globalThis.chrome?.runtime?.id && chrome.storage?.sync);
@@ -51,6 +53,11 @@
   const selectedLevels = () => elements.levelInputs
     .filter((input) => input.checked)
     .map((input) => input.value);
+
+  const setMobileNav = (open) => {
+    document.body.dataset.navOpen = String(open);
+    elements.mobileNavButton.setAttribute("aria-expanded", String(open));
+  };
 
   const renderPreview = (levels) => {
     const selected = new Set(levels);
@@ -117,6 +124,20 @@
   elements.levelInputs.forEach((input) => input.addEventListener("change", () => update({
     learningLevels: selectedLevels(),
   })));
+  elements.mobileNavButton.addEventListener("click", () => {
+    setMobileNav(document.body.dataset.navOpen !== "true");
+  });
+  elements.sidebar.addEventListener("click", (event) => {
+    if (event.target.closest("a")) setMobileNav(false);
+  });
+  document.addEventListener("click", (event) => {
+    if (document.body.dataset.navOpen !== "true") return;
+    if (event.target.closest(".sidebar, #mobile-nav-button")) return;
+    setMobileNav(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setMobileNav(false);
+  });
 
   storageGet().then((stored) => {
     settings = { ...DEFAULTS, ...stored };

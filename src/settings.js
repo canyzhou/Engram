@@ -21,9 +21,9 @@
     statusPlacement: null,
   });
 
-  const isInvalidatedContextError = (error) => (
+  const isInvalidatedContextError = PST.isExtensionContextInvalidated || ((error) => (
     /extension context invalidated/i.test(String(error?.message || error))
-  );
+  ));
 
   const getSyncStorage = () => {
     try {

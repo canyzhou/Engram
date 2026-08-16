@@ -8,8 +8,9 @@ const content = readFileSync(new URL("../src/content.js", import.meta.url), "utf
 
 test("learning layout reserves page space without repositioning YouTube player internals", () => {
   assert.match(css, /width:\s*calc\(100vw - var\(--engram-learning-panel-width\)\)/);
+  assert.match(css, /ytd-watch-flexy #columns[\s\S]*min-width:\s*0\s*!important/);
   assert.match(css, /padding:\s*88px 18px 212px/);
-  assert.match(css, /ytd-watch-flexy #columns/);
+  assert.match(css, /ytd-watch-flexy #player-container-outer[\s\S]*width:\s*100%\s*!important[\s\S]*min-width:\s*0\s*!important[\s\S]*max-width:\s*100%\s*!important/);
   assert.doesNotMatch(css, /data-engram-player-host|#movie_player|html5-main-video/);
   assert.doesNotMatch(shell, /data-engram-player-host/);
 });
@@ -20,6 +21,8 @@ test("learning panel resizes with the video layout and collapses below a thresho
   assert.match(shell, /class="panel-resizer" role="separator"/);
   assert.match(shell, /PANEL_COLLAPSE_THRESHOLD = 220/);
   assert.match(shell, /this\.setPanelWidth\(this\.panelResizeRawWidth, \{ preview: true \}\)/);
+  assert.match(shell, /requestPlayerLayout\(\)[\s\S]*requestAnimationFrame[\s\S]*window\.dispatchEvent\(new Event\("resize"\)\)/);
+  assert.match(shell, /if \(Math\.abs\(nextWidth - previousWidth\) > \.5\) this\.requestPlayerLayout\(\)/);
   assert.match(shell, /if \(this\.panelResizeRawWidth <= PANEL_COLLAPSE_THRESHOLD\) this\.setPanelCollapsed\(true\)/);
   assert.match(shell, /class="panel-restore"[^>]*aria-label="展开学习面板"/);
   assert.match(shell, /restore\.addEventListener\("click", \(\) =>/);
@@ -79,4 +82,10 @@ test("learning workspace renders hoverable words with contextual lookup and shar
   assert.match(shell, /word-tooltip__phrase/);
   assert.match(content, /onAddWord: storeVocabularyEntry/);
   assert.match(content, /await storeVocabularyEntry\(event\.detail\)/);
+});
+
+test("learning workspace stops background storage work after extension invalidation", () => {
+  assert.match(shell, /this\.persistProgress\(\)\.catch\(\(error\) => this\.handleAsyncError/);
+  assert.match(shell, /if \(isExtensionContextInvalidated\(error\)\) \{\s*this\.extensionContextInvalidated = true;\s*clearInterval\(this\.historyTimer\)/);
+  assert.match(shell, /if \(!PST\.hasExtensionContext\(\)\) \{\s*this\.extensionContextInvalidated = true/);
 });

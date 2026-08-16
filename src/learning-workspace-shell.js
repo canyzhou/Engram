@@ -11,6 +11,9 @@
   const PANEL_COLLAPSE_THRESHOLD = 220;
   const VIDEO_MIN_WIDTH = 480;
   const HOVER_LOOKUP_DELAY_MS = 300;
+  const isExtensionContextInvalidated = PST.isExtensionContextInvalidated || ((error) => (
+    /extension context invalidated/i.test(String(error?.message || error))
+  ));
 
   const STYLES = `
     :host { all: initial; display: contents; color-scheme: dark; font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -154,6 +157,8 @@
       this.panelCollapsed = false;
       this.panelResizePointerId = null;
       this.panelResizeRawWidth = 0;
+      this.extensionContextInvalidated = false;
+      this.playerLayoutFrame = 0;
       this.handleTimeUpdate = () => {
         this.syncPlayerState();
         this.syncCue();
@@ -241,9 +246,12 @@
         </section>`;
       (document.body || document.documentElement).append(this.host);
       this.shadow.querySelector(".back").addEventListener("click", () => this.exit());
-      this.shadow.querySelector(".archive-button").addEventListener("click", () => this.persistProgress({ manual: true, toggleStar: true }));
+      this.shadow.querySelector(".archive-button").addEventListener("click", () => {
+        this.persistProgress({ manual: true, toggleStar: true })
+          .catch((error) => this.handleAsyncError(error, "保存学习记录失败"));
+      });
       this.shadow.querySelector(".dashboard-link").addEventListener("click", () => {
-        chrome.runtime.sendMessage({ type: "OPEN_LEARNING_DASHBOARD" }).catch(() => undefined);
+        PST.safeSendMessage({ type: "OPEN_LEARNING_DASHBOARD" });
       });
       this.bindControls();
       this.bindDictionary();
@@ -262,17 +270,43 @@
       this.observer.observe(document.documentElement, { childList: true, subtree: true });
       this.bindPlayer();
       await this.refresh();
-      this.refreshTimer = window.setInterval(() => this.refresh(), 2000);
-      this.historyTimer = window.setInterval(() => this.persistProgress(), 5000);
+      this.refreshTimer = window.setInterval(() => {
+        this.refresh().catch((error) => this.handleAsyncError(error, "刷新学习上下文失败"));
+      }, 2000);
+      this.historyTimer = window.setInterval(() => {
+        this.persistProgress().catch((error) => this.handleAsyncError(error, "保存学习进度失败"));
+      }, 5000);
+    }
+
+    handleAsyncError(error, label) {
+      if (isExtensionContextInvalidated(error)) {
+        this.extensionContextInvalidated = true;
+        clearInterval(this.historyTimer);
+        this.historyTimer = 0;
+        return;
+      }
+      console.warn(`[Engram] ${label}`, error);
     }
 
     maximumPanelWidth() {
       return Math.max(PANEL_MIN_WIDTH, window.innerWidth - VIDEO_MIN_WIDTH);
     }
 
+    requestPlayerLayout() {
+      if (this.playerLayoutFrame) return;
+      this.playerLayoutFrame = window.requestAnimationFrame(() => {
+        this.playerLayoutFrame = 0;
+        // YouTube sizes the native player from its window resize path. The
+        // learning panel changes only the page shell width, so notify that
+        // path after the new CSS width has been applied.
+        window.dispatchEvent(new Event("resize"));
+      });
+    }
+
     setPanelWidth(width, { preview = false } = {}) {
       const minimum = preview ? 0 : PANEL_MIN_WIDTH;
       const nextWidth = Math.min(this.maximumPanelWidth(), Math.max(minimum, Number(width) || minimum));
+      const previousWidth = this.panelWidth;
       this.panelWidth = nextWidth;
       if (!preview) this.lastPanelWidth = nextWidth;
       document.documentElement.style.setProperty("--engram-learning-panel-width", `${nextWidth}px`);
@@ -281,6 +315,7 @@
         resizer.setAttribute("aria-valuemax", String(Math.round(this.maximumPanelWidth())));
         resizer.setAttribute("aria-valuenow", String(Math.round(nextWidth)));
       }
+      if (Math.abs(nextWidth - previousWidth) > .5) this.requestPlayerLayout();
     }
 
     setPanelCollapsed(collapsed) {
@@ -766,7 +801,24 @@
     async persistProgress({ manual = false, toggleStar = false } = {}) {
       const History = PST.LearningHistoryCore;
       const video = this.context?.video;
-      if (!History || !video?.url || !chrome.storage?.local) return;
+      if (!History || !video?.url || this.extensionContextInvalidated) return;
+      let storage;
+      try {
+        if (!PST.hasExtensionContext()) {
+          this.extensionContextInvalidated = true;
+          clearInterval(this.historyTimer);
+          this.historyTimer = 0;
+          return;
+        }
+        storage = chrome.storage?.local;
+      } catch (error) {
+        if (isExtensionContextInvalidated(error)) {
+          this.handleAsyncError(error, "扩展上下文已失效");
+          return;
+        }
+        throw error;
+      }
+      if (!storage) return;
       const now = Date.now();
       const currentTime = Number(this.video?.currentTime ?? video.currentTime) || 0;
       const duration = Number.isFinite(this.video?.duration) && this.video.duration > 0
@@ -775,7 +827,16 @@
       const playing = Boolean(this.video && !this.video.paused && !this.video.ended);
       const elapsed = playing ? Math.min(30, Math.max(0, (now - this.historyTickAt) / 1000)) : 0;
       this.historyTickAt = now;
-      const stored = await chrome.storage.local.get({ [History.STORAGE_KEY]: [] });
+      let stored;
+      try {
+        stored = await storage.get({ [History.STORAGE_KEY]: [] });
+      } catch (error) {
+        if (isExtensionContextInvalidated(error)) {
+          this.handleAsyncError(error, "扩展上下文已失效");
+          return;
+        }
+        throw error;
+      }
       const history = History.normalizeHistory(stored[History.STORAGE_KEY]);
       const existing = History.findRecord(history, video);
       if (!manual && existing && !playing && Math.abs(currentTime - this.lastPersistedTime) < .5) {
@@ -796,7 +857,15 @@
         this.syncArchiveButton(record);
         return;
       }
-      await chrome.storage.local.set({ [History.STORAGE_KEY]: History.upsertHistory(history, record) });
+      try {
+        await storage.set({ [History.STORAGE_KEY]: History.upsertHistory(history, record) });
+      } catch (error) {
+        if (isExtensionContextInvalidated(error)) {
+          this.handleAsyncError(error, "扩展上下文已失效");
+          return;
+        }
+        throw error;
+      }
       this.lastPersistedTime = currentTime;
       this.syncArchiveButton(record);
     }
@@ -821,7 +890,7 @@
       this.syncCue();
       if (!this.historyInitialized) {
         this.historyInitialized = true;
-        this.persistProgress().catch(() => undefined);
+        this.persistProgress().catch((error) => this.handleAsyncError(error, "保存学习进度失败"));
       }
     }
 
@@ -859,6 +928,8 @@
       this.observer?.disconnect();
       this.unbindPlayerEvents();
       window.removeEventListener("resize", this.handleViewportResize);
+      if (this.playerLayoutFrame) cancelAnimationFrame(this.playerLayoutFrame);
+      this.playerLayoutFrame = 0;
       document.documentElement.classList.remove("pst-learning-mode", "pst-learning-panel-collapsed", "pst-learning-panel-resizing");
       document.documentElement.style.removeProperty("--engram-learning-panel-width");
       if (this.overlay?.host) this.overlay.host.style.removeProperty("display");

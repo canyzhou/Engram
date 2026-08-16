@@ -219,9 +219,54 @@
     return { complete, remainder: value.slice(sentenceStart).trim() };
   };
 
+  const splitLongCaptionText = (text, {
+    softMaxLength = 120,
+    hardMaxLength = 170,
+  } = {}) => {
+    const complete = [];
+    let remainder = PST.normalizeSubtitle(text);
+    const softLimit = Math.max(48, Number(softMaxLength) || 120);
+    const hardLimit = Math.max(softLimit, Number(hardMaxLength) || 170);
+    const minimumBreak = Math.max(48, Math.floor(softLimit * 0.65));
+
+    while (remainder.length > softLimit) {
+      const maximumBreak = Math.min(remainder.length, hardLimit);
+      const naturalBreaks = [];
+      for (let index = minimumBreak; index < maximumBreak; index += 1) {
+        const character = remainder[index];
+        if (!/[,;:，；：、—–]/u.test(character)) continue;
+        if (character === "," && /\d/.test(remainder[index - 1] || "") && /\d/.test(remainder[index + 1] || "")) continue;
+        naturalBreaks.push(index + 1);
+      }
+      const naturalBreak = naturalBreaks.reduce((best, candidate) => (
+        Math.abs(candidate - softLimit) < Math.abs(best - softLimit) ? candidate : best
+      ), 0);
+
+      let boundary = naturalBreak;
+      if (!boundary && remainder.length > hardLimit) {
+        const before = remainder.lastIndexOf(" ", softLimit);
+        const after = remainder.indexOf(" ", softLimit);
+        const candidates = [before, after]
+          .filter((candidate) => candidate >= minimumBreak && candidate <= maximumBreak);
+        boundary = candidates.reduce((best, candidate) => (
+          Math.abs(candidate - softLimit) < Math.abs(best - softLimit) ? candidate : best
+        ), 0) || maximumBreak;
+      }
+      if (!boundary) break;
+
+      const head = remainder.slice(0, boundary).trim();
+      if (!head) break;
+      complete.push(head);
+      remainder = remainder.slice(boundary).trim();
+    }
+
+    return { complete, remainder };
+  };
+
   const aggregateYouTubeCues = (cues, {
     hardMaxDuration = 30,
-    hardMaxLength = 320,
+    softMaxLength = 120,
+    hardMaxLength = 170,
     incremental = false,
     pauseSeconds = 1.6,
   } = {}) => {
@@ -242,10 +287,31 @@
       if (prepared[index].text) nextText = prepared[index].text;
     }
     const sentences = [];
+    const timedParts = (parts, start, end) => {
+      const values = parts.filter(Boolean);
+      const totalLength = values.reduce((sum, part) => sum + part.length, 0);
+      const span = Math.max(0.2, end - start);
+      let partStart = start;
+      return values.map((text, index) => {
+        const isLast = index === values.length - 1;
+        const share = text.length / Math.max(totalLength, 1);
+        const partEnd = isLast
+          ? end
+          : Math.min(end, partStart + Math.max(0.35, span * share));
+        const part = { start: partStart, end: partEnd, text };
+        partStart = partEnd;
+        return part;
+      });
+    };
     let current = null;
     const flush = () => {
       if (!current?.text) return;
-      sentences.push({ start: current.start, end: current.end, text: current.text });
+      const split = splitLongCaptionText(current.text, { softMaxLength, hardMaxLength });
+      sentences.push(...timedParts(
+        [...split.complete, split.remainder],
+        current.start,
+        current.end,
+      ));
       current = null;
     };
 
@@ -285,9 +351,13 @@
       );
       if (complete.length) {
         const span = Math.max(0.2, current.end - current.start);
-        const totalLength = complete.reduce((sum, sentence) => sum + sentence.length, 0) + remainder.length;
+        const completeParts = complete.flatMap((sentence) => {
+          const split = splitLongCaptionText(sentence, { softMaxLength, hardMaxLength });
+          return [...split.complete, split.remainder].filter(Boolean);
+        });
+        const totalLength = completeParts.reduce((sum, sentence) => sum + sentence.length, 0) + remainder.length;
         let sentenceStart = current.start;
-        for (const sentence of complete) {
+        for (const sentence of completeParts) {
           const share = sentence.length / Math.max(totalLength, 1);
           const sentenceEnd = Math.min(current.end, sentenceStart + Math.max(0.35, span * share));
           sentences.push({ start: sentenceStart, end: sentenceEnd, text: sentence });
@@ -296,6 +366,27 @@
         current = remainder
           ? { start: sentenceStart, end: cue.end, text: remainder, lastStart: cue.start }
           : null;
+      }
+
+      if (current) {
+        const split = splitLongCaptionText(current.text, { softMaxLength, hardMaxLength });
+        if (split.complete.length) {
+          const parts = timedParts(
+            [...split.complete, split.remainder],
+            current.start,
+            current.end,
+          );
+          const emittedCount = split.complete.length;
+          sentences.push(...parts.slice(0, emittedCount));
+          current = split.remainder
+            ? {
+              start: parts[emittedCount]?.start ?? current.end,
+              end: cue.end,
+              text: split.remainder,
+              lastStart: cue.start,
+            }
+            : null;
+        }
       }
 
       if (
@@ -866,6 +957,7 @@
   PST.mergeIncrementalCaptionText = mergeIncrementalCaptionText;
   PST.captionDelta = captionDelta;
   PST.splitCompleteSentences = splitCompleteSentences;
+  PST.splitLongCaptionText = splitLongCaptionText;
   PST.aggregateYouTubeCues = aggregateYouTubeCues;
   PST.aggregateYouTubeAutoCues = aggregateYouTubeAutoCues;
   PST.parseYouTubeTimedText = parseYouTubeTimedText;

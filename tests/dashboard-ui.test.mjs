@@ -47,7 +47,7 @@ test("learning workspace offers a star action and persists the ten-percent archi
   assert.match(shell, /class="archive-button"/);
   assert.match(shell, /星标并加入学习档案/);
   assert.match(shell, /History\.buildRecord/);
-  assert.match(shell, /window\.setInterval\(\(\) => this\.persistProgress\(\), 5000\)/);
+  assert.match(shell, /window\.setInterval\(\(\) => \{\s*this\.persistProgress\(\)\.catch\(\(error\) => this\.handleAsyncError/);
   assert.match(learningModeHtml, /src\/learning-history-core\.js/);
   assert.match(learningModeScript, /saveAnalysisToHistory\(state\.analysis\)/);
   const contentScripts = manifest.content_scripts.flatMap((entry) => entry.js || []);

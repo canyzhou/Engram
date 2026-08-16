@@ -190,6 +190,18 @@
 
   const lemmaCandidates = learningLemmaCandidates;
 
+  const settleWithin = (promise, timeoutMs) => new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    Promise.resolve(promise).then(finish, () => finish(null));
+  });
+
   const normalizeLookupContext = (options = {}) => ({
     sentence: PST.normalizeSubtitle(options.sentence),
     context: (Array.isArray(options.context) ? options.context : [])
@@ -242,18 +254,24 @@
         dictionarySettled = true;
         return null;
       });
-      const contextualResponse = lookupContext.sentence
-        ? await PST.safeSendMessage({
+      const contextualPromise = lookupContext.sentence
+        ? PST.safeSendMessage({
           type: "CONTEXTUAL_WORD_LOOKUP",
           word: normalized,
           sentence: lookupContext.sentence,
           context: lookupContext.context,
         })
         : null;
+      // Hover feedback must remain interactive even if the contextual AI is slow.
+      // Its service-worker request may finish in the background, while this lookup
+      // falls back to the regular dictionary and selected translation engine.
+      const contextualResponse = contextualPromise
+        ? await settleWithin(contextualPromise, 4_500)
+        : null;
       // A contextual result already contains the selected meaning and definition.
       // Do not hold the card open on a slower third-party phonetic lookup.
       if (!contextualResponse?.ok && !dictionarySettled) {
-        dictionaryResponse = await dictionaryPromise;
+        dictionaryResponse = await settleWithin(dictionaryPromise, 1_500);
       }
       const entry = dictionaryResponse?.ok ? dictionaryResponse.entry : null;
       const contextual = contextualResponse?.ok ? contextualResponse.entry : null;

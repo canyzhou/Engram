@@ -59,6 +59,7 @@ test("analysis keeps 5–8 categorized learning items and concise timeline segme
       { start: 10, end: 20, level: "B1", title: "计划", analysis: "将来计划表达。", focus: "going to", timestamp: 10, sourceText: cues[0].text },
       { start: 20, end: 34, level: "B2", title: "时间与准备", analysis: "估算和被动语态。", focus: "roughly / told to", timestamp: 20, sourceText: cues[1].text },
     ],
+    discussionQuestions: Core.createDiscussionQuestions("A hiking lesson", cues),
     coverage: { cueCount: 3, complete: true },
   }, { cues, duration: 40, learnerLevel: "B1" });
 
@@ -67,6 +68,7 @@ test("analysis keeps 5–8 categorized learning items and concise timeline segme
   assert.equal(result.timelineSegments.length, 2);
   assert.equal(result.coverage.complete, true);
   assert.equal(result.learnerLevel, "B1");
+  assert.equal(result.discussionQuestions.source[0].evidence[0].sourceText, cues[0].text);
 });
 
 test("rejects hallucinated expressions that do not exist in the transcript", () => {
@@ -98,10 +100,11 @@ test("creates two Engoo-style sets of discussion questions", () => {
   const questions = Core.createDiscussionQuestions("How to Film Cinematic Videos by Yourself", cues);
   assert.equal(questions.source.length, 5);
   assert.equal(questions.advanced.length, 5);
-  assert.match(questions.source[0], /Filming cinematic videos/);
-  assert.match(questions.source[1], /Camera movement/);
-  assert.match(questions.advanced[0], /How to Film Cinematic Videos/);
-  assert.doesNotMatch(questions.source.join(" "), /main message|stands out|Do you agree/i);
+  assert.match(questions.source[0].text, /Filming cinematic videos/);
+  assert.match(questions.source[1].text, /Camera movement/);
+  assert.match(questions.advanced[0].text, /How to Film Cinematic Videos/);
+  assert.equal(questions.source[0].evidence[0].sourceText, cues[0].text);
+  assert.doesNotMatch(questions.source.map((question) => question.text).join(" "), /main message|stands out|Do you agree/i);
 });
 
 test("creates a grounded local analysis when the AI proxy is unavailable", () => {
@@ -118,7 +121,8 @@ test("creates a grounded local analysis when the AI proxy is unavailable", () =>
   assert.equal(result.timelineSegments.length, 2);
   assert.equal(result.discussionQuestions.source.length, 5);
   assert.equal(result.discussionQuestions.advanced.length, 5);
-  assert.match(result.discussionQuestions.source[0], /Filming cinematic videos/);
+  assert.match(result.discussionQuestions.source[0].text, /Filming cinematic videos/);
+  assert.equal(result.discussionQuestions.source[0].evidence[0].sourceText, cues[0].text);
   assert.match(result.fitVerdict, /本地难度/);
   for (const item of result.expressions) {
     assert.ok(cues.some((cue) => cue.text.toLowerCase().includes(item.expression.toLowerCase())));

@@ -16,7 +16,9 @@ const createDictionaryContext = (ParamountSubtitles = {}) => {
     RegExp,
     Set,
     String,
+    clearTimeout,
     globalThis: null,
+    setTimeout,
     ParamountSubtitles,
   });
   context.globalThis = context;

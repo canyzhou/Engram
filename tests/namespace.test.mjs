@@ -48,6 +48,21 @@ test("removes repeated speaker-change chevrons from learning subtitles", () => {
   assert.equal(normalize("This value is > the previous value."), "This value is > the previous value.");
 });
 
+test("recognizes an invalidated extension context without throwing on runtime access", () => {
+  const invalidatedContext = vm.createContext({ Math, String, globalThis: null });
+  invalidatedContext.globalThis = invalidatedContext;
+  invalidatedContext.chrome = { runtime: {} };
+  Object.defineProperty(invalidatedContext.chrome.runtime, "id", {
+    get() { throw new Error("Extension context invalidated."); },
+  });
+  vm.runInContext(source, invalidatedContext);
+
+  const namespace = invalidatedContext.ParamountSubtitles;
+  assert.equal(namespace.isExtensionContextInvalidated(new Error("Extension context invalidated.")), true);
+  assert.equal(namespace.isExtensionContextInvalidated(new Error("network unavailable")), false);
+  assert.equal(namespace.hasExtensionContext(), false);
+});
+
 test("injects the page bridge into YouTube's main world at document start", () => {
   const bridgeEntry = manifest.content_scripts.find((entry) => entry.js.includes("src/page-bridge.js"));
 

@@ -15,6 +15,7 @@ import {
   normalizeTranslationRequest,
   normalizeWordLookupRequest,
   normalizeWordLookupResult,
+  parseDeepSeekJsonContent,
 } from "../server.mjs";
 
 const lessonCues = [
@@ -23,22 +24,38 @@ const lessonCues = [
   { start: 30, end: 34, text: "I was told to bring water." },
 ];
 
+const lessonQuestion = (text, cueIndex = 0) => ({
+  text,
+  evidence: [{
+    timestamp: lessonCues[cueIndex].start,
+    sourceText: lessonCues[cueIndex].text,
+  }],
+});
+
 const lessonQuestions = {
   source: [
-    "What is the video mainly about?",
-    "Why is the speaker going on a hike?",
-    "What challenge does the speaker expect?",
-    "Which detail stands out to you?",
-    "Do you agree with the speaker?",
+    lessonQuestion("What is the video mainly about?", 0),
+    lessonQuestion("Why is the speaker going on a hike?", 0),
+    lessonQuestion("What challenge does the speaker expect?", 1),
+    lessonQuestion("Which detail stands out to you?", 1),
+    lessonQuestion("Do you agree with the speaker?", 2),
   ],
   advanced: [
-    "Would you enjoy this experience?",
-    "What would you prepare before leaving?",
-    "What could go wrong?",
-    "What advice would you give the speaker?",
-    "Where would you like to go?",
+    lessonQuestion("Would you enjoy this experience?", 0),
+    lessonQuestion("What would you prepare before leaving?", 2),
+    lessonQuestion("What could go wrong?", 1),
+    lessonQuestion("What advice would you give the speaker?", 2),
+    lessonQuestion("Where would you like to go?", 0),
   ],
 };
+
+test("extracts a complete JSON object from model prose and thinking wrappers", () => {
+  assert.deepEqual(parseDeepSeekJsonContent('<think>done</think>\nResult:\n```json\n{"ok":true,"text":"brace } in string"}\n```'), {
+    ok: true,
+    text: "brace } in string",
+  });
+  assert.throws(() => parseDeepSeekJsonContent('Result: {"ok": true'), /无法解析的 JSON/);
+});
 
 test("normalizes and caps subtitle context without accepting arbitrary prompts", () => {
   const result = normalizeTranslationRequest({
@@ -207,14 +224,55 @@ test("anchors 5–8 lesson items and concise timeline segments to real subtitle 
   assert.deepEqual(analysis.discussionQuestions, lessonQuestions);
 });
 
+test("derives subtitle evidence when the model returns lightweight question strings", () => {
+  const request = normalizeLessonAnalysisRequest({ learnerLevel: "B1", video: { duration: 120 }, cues: lessonCues });
+  const questions = {
+    source: [
+      "Why is the speaker going on a hike?",
+      "How long will the hike take?",
+      "What should the speaker bring?",
+      "Which detail stands out?",
+      "Would you try this hike?",
+    ],
+    advanced: [
+      "Where do you like to hike?",
+      "How do you prepare for eight hours outside?",
+      "Why is water important?",
+      "What makes a hike difficult?",
+      "Who would you invite?",
+    ],
+  };
+  const base = {
+    materialLevel: "B2", vocabularyLevel: "B2", speechLevel: "B1+", syntaxLevel: "B2",
+    fitVerdict: "适合精学", fitReasons: ["主题明确。", "表达实用。"],
+    learningOutcomes: ["掌握徒步表达。", "练习计划表达。"], studyMinutes: 12,
+    recommendedRange: { start: 10, end: 34 }, discussionQuestions: questions,
+    learningItems: [
+      { category: "pattern", expression: "go on a hike", meaningZh: "去徒步", timestamp: 10 },
+      { category: "grammar", expression: "going to", meaningZh: "将要", timestamp: 10 },
+      { category: "word", expression: "roughly", meaningZh: "大约", timestamp: 20 },
+      { category: "pattern", expression: "eight hours", meaningZh: "八小时", timestamp: 20 },
+      { category: "grammar", expression: "told to bring", meaningZh: "被告知带上", timestamp: 30 },
+    ],
+    timelineSegments: [
+      { start: 10, end: 20, level: "B1", title: "计划", analysis: "计划表达。", focus: "练习计划", timestamp: 10, sourceText: lessonCues[0].text },
+      { start: 20, end: 34, level: "B2", title: "准备", analysis: "准备表达。", focus: "练习准备", timestamp: 20, sourceText: lessonCues[1].text },
+    ],
+  };
+  const result = normalizeLessonAnalysisResult(base, request);
+  assert.equal(result.discussionQuestions.source[0].text, questions.source[0]);
+  assert.equal(result.discussionQuestions.source[0].evidence[0].sourceText, lessonCues[0].text);
+  assert.equal(result.discussionQuestions.source[1].evidence[0].sourceText, lessonCues[1].text);
+});
+
 test("builds and validates grounded lesson discussion", () => {
   const request = normalizeLessonDiscussionRequest({
     mode: "advanced",
     phase: "question",
     questionIndex: 1,
     questionPlan: [
-      { type: "source", text: "What is the video about?" },
-      { type: "advanced", text: "Would you try it yourself?" },
+      { type: "source", ...lessonQuestion("What is the video about?", 0) },
+      { type: "advanced", ...lessonQuestion("Would you try it yourself?", 1) },
     ],
     learnerLevel: "B1",
     video: { duration: 120 },
@@ -237,10 +295,49 @@ test("builds and validates grounded lesson discussion", () => {
   assert.equal(discussion.suggestedExpression, "go on a hike");
 });
 
+test("keeps the full discussion transcript for validation but sends only the evidence window upstream", () => {
+  const cues = Array.from({ length: 140 }, (_, index) => ({
+    start: index * 3,
+    end: index * 3 + 2,
+    text: `Caption ${index} explains a concrete filming detail in sequence.`,
+  }));
+  const evidenceCue = cues[70];
+  const request = normalizeLessonDiscussionRequest({
+    questionIndex: 0,
+    questionPlan: [{
+      type: "source",
+      text: "Why is this filming detail important?",
+      evidence: [{ timestamp: evidenceCue.start, sourceText: evidenceCue.text }],
+    }],
+    video: { duration: 500 },
+    cues,
+  });
+  const upstream = buildLessonDiscussionRequest(request);
+  const userPayload = JSON.parse(upstream.messages[1].content);
+
+  assert.equal(request.transcriptCues.length, cues.length);
+  assert.ok(request.cues.length <= 25);
+  assert.ok(request.cues.some((cue) => cue.start === evidenceCue.start));
+  assert.ok(!request.cues.some((cue) => cue.start === cues[0].start));
+  assert.equal(userPayload.transcript.length, request.cues.length);
+});
+
+test("rejects a discussion question whose evidence is not in the transcript", () => {
+  assert.throws(() => normalizeLessonDiscussionRequest({
+    questionPlan: [{
+      type: "source",
+      text: "What does the speaker do first?",
+      evidence: [{ timestamp: 99, sourceText: "Invented evidence." }],
+    }],
+    video: { duration: 120 },
+    cues: lessonCues,
+  }), /缺少有效字幕证据/);
+});
+
 test("final casual response asks the coach to summarize and end the lesson", () => {
   const request = normalizeLessonDiscussionRequest({
     phase: "casual",
-    questionPlan: [{ type: "source", text: "What is the video about?" }],
+    questionPlan: [{ type: "source", ...lessonQuestion("What is the video about?", 0) }],
     video: { duration: 120 },
     cues: lessonCues,
     messages: [{ role: "user", content: "I also want to talk about confidence." }],
@@ -418,6 +515,16 @@ test("analyzes every cue in a long transcript through grounded chunks without si
     end: index * 4 + 3,
     text: `Segment ${index} includes alpine journey pattern grammar focus ${"context ".repeat(20)}`.trim(),
   }));
+  const longQuestions = Object.fromEntries(Object.entries(lessonQuestions).map(([group, questions]) => ([
+    group,
+    questions.map((question, index) => ({
+      text: question.text,
+      evidence: [{
+        timestamp: longCues[index * 30].start,
+        sourceText: longCues[index * 30].text,
+      }],
+    })),
+  ])));
   const seenStarts = [];
   let upstreamCalls = 0;
   const server = createTranslationServer({
@@ -442,7 +549,7 @@ test("analyzes every cue in a long transcript through grounded chunks without si
           recommendedRange: { start: longCues[0].start, end: longCues.at(-1).end },
           learningItems: candidates.slice(0, 5),
           timelineSegments: segments.slice(0, 2),
-          discussionQuestions: lessonQuestions,
+          discussionQuestions: longQuestions,
         };
       } else {
         const cues = user.transcript;

@@ -67,11 +67,25 @@
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
-  root.safeSendMessage = async (message) => {
-    if (!globalThis.chrome?.runtime?.sendMessage) return null;
+  root.isExtensionContextInvalidated = (error) => (
+    /extension context invalidated/i.test(String(error?.message || error))
+  );
+
+  root.hasExtensionContext = () => {
     try {
+      return Boolean(globalThis.chrome?.runtime?.id);
+    } catch (error) {
+      if (root.isExtensionContextInvalidated(error)) return false;
+      throw error;
+    }
+  };
+
+  root.safeSendMessage = async (message) => {
+    try {
+      if (!root.hasExtensionContext() || !globalThis.chrome?.runtime?.sendMessage) return null;
       return await chrome.runtime.sendMessage(message);
-    } catch {
+    } catch (error) {
+      if (!root.isExtensionContextInvalidated(error)) return null;
       return null;
     }
   };

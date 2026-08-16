@@ -51,6 +51,7 @@ html.pst-learning-mode ytd-page-manager {
 html.pst-learning-mode ytd-watch-flexy #columns {
   display: block !important;
   width: 100% !important;
+  min-width: 0 !important;
   max-width: none !important;
   margin: 0 !important;
   padding: 88px 18px 212px !important;
@@ -64,6 +65,19 @@ html.pst-learning-mode ytd-watch-flexy #primary-inner {
   max-width: none !important;
   margin: 0 !important;
   padding: 0 !important;
+}
+
+/*
+ * YouTube gives both #columns and #player-container-outer desktop minimum
+ * widths (currently 1008px and 640px). Those values outlive the narrower
+ * learning shell and make the native player continue underneath the panel.
+ * Keep the player nodes in their native flow, but let the outer sizing box
+ * follow the width available to #primary.
+ */
+html.pst-learning-mode ytd-watch-flexy #player-container-outer {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
 }
 
 html.pst-learning-mode #pst-learning-panel {

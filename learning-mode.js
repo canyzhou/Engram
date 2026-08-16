@@ -1,7 +1,8 @@
 (() => {
   const PST = globalThis.ParamountSubtitles;
   const Core = PST.LearningModeCore;
-  const hasExtensionApi = Boolean(globalThis.chrome?.runtime?.id);
+  const PLAYER_ORIGIN = "https://www.youtube-nocookie.com";
+  const hasExtensionApi = PST.hasExtensionContext();
   const pageParams = new URLSearchParams(location.search);
   const previewMode = pageParams.get("preview") === "1" || !hasExtensionApi;
   const embeddedMode = pageParams.get("embedded") === "1";
@@ -156,6 +157,7 @@
     discussionOutlineToggle: document.querySelector("#discussion-outline-toggle"),
     discussionSessionOutline: document.querySelector("#discussion-session-outline"),
     discussionSessionQuestionList: document.querySelector("#discussion-session-question-list"),
+    discussionIntro: document.querySelector("#discussion-intro"),
     discussionMessages: document.querySelector("#discussion-messages"),
     discussionForm: document.querySelector("#discussion-form"),
     discussionInput: document.querySelector("#discussion-input"),
@@ -179,19 +181,69 @@
     previewTimer: 0,
     playbackTimer: 0,
     contextRetrying: false,
+    playerReady: false,
+    destroyed: false,
+  };
+
+  const extensionUnavailableMessage = "扩展已更新，请刷新页面后重试。";
+
+  const extensionStorage = (area) => {
+    try {
+      if (!PST.hasExtensionContext()) return null;
+      return globalThis.chrome?.storage?.[area] || null;
+    } catch (error) {
+      if (PST.isExtensionContextInvalidated(error)) return null;
+      throw error;
+    }
+  };
+
+  const readExtensionStorage = async (area, defaults) => {
+    const storage = extensionStorage(area);
+    if (!storage) return defaults;
+    try {
+      return await storage.get(defaults);
+    } catch (error) {
+      if (PST.isExtensionContextInvalidated(error)) return defaults;
+      throw error;
+    }
+  };
+
+  const writeExtensionStorage = async (area, patch) => {
+    const storage = extensionStorage(area);
+    if (!storage) return false;
+    try {
+      await storage.set(patch);
+      return true;
+    } catch (error) {
+      if (PST.isExtensionContextInvalidated(error)) return false;
+      throw error;
+    }
   };
 
   const sendMessage = async (message) => {
     if (!hasExtensionApi) return null;
+    if (!PST.hasExtensionContext()) return { ok: false, error: extensionUnavailableMessage, contextInvalidated: true };
     try { return await chrome.runtime.sendMessage(sourceTabId ? { ...message, sourceTabId } : message); }
-    catch (error) { return { ok: false, error: error?.message || "扩展通信失败" }; }
+    catch (error) {
+      if (PST.isExtensionContextInvalidated(error)) {
+        return { ok: false, error: extensionUnavailableMessage, contextInvalidated: true };
+      }
+      return { ok: false, error: error?.message || "扩展通信失败" };
+    }
   };
 
   const openSource = () => {
     const url = state.context?.video?.url;
     if (!url) return;
-    if (hasExtensionApi && chrome.tabs?.create) chrome.tabs.create({ url });
-    else window.open(url, "_blank", "noopener");
+    try {
+      if (PST.hasExtensionContext() && chrome.tabs?.create) {
+        chrome.tabs.create({ url }).catch(() => window.open(url, "_blank", "noopener"));
+        return;
+      }
+    } catch (error) {
+      if (!PST.isExtensionContextInvalidated(error)) throw error;
+    }
+    window.open(url, "_blank", "noopener");
   };
 
   const switchTab = (name) => {
@@ -205,6 +257,19 @@
     if (name === "transcript" && state.activeCue && elements.autoFollow.checked) scrollToActiveTranscript();
   };
 
+  const postPlayerMessage = (payload) => {
+    if (!state.playerReady || state.destroyed) return false;
+    try {
+      elements.player.contentWindow?.postMessage(JSON.stringify(payload), PLAYER_ORIGIN);
+      return Boolean(elements.player.contentWindow);
+    } catch {
+      state.playerReady = false;
+      clearInterval(state.playbackTimer);
+      state.playbackTimer = 0;
+      return false;
+    }
+  };
+
   const playerCommand = (func, args = []) => {
     if (previewMode) return;
     if (embeddedMode) {
@@ -212,11 +277,11 @@
       if (action) sendMessage({ type: "CONTROL_LEARNING_VIDEO", action, time: args[0] });
       return;
     }
-    elements.player.contentWindow?.postMessage(JSON.stringify({
+    postPlayerMessage({
       event: "command",
       func,
       args,
-    }), "https://www.youtube-nocookie.com");
+    });
   };
 
   const updateProgressDisplay = () => {
@@ -394,10 +459,16 @@
   const waitForMoreLearningCues = async () => {
     if (previewMode || state.contextRetrying) return;
     state.contextRetrying = true;
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    let lastContextError = "";
+    for (let attempt = 0; attempt < 60 && !state.destroyed; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 500));
+      if (state.destroyed) break;
       const response = await sendMessage({ type: "GET_LEARNING_CONTEXT" });
-      if (!response?.ok) continue;
+      if (!response?.ok) {
+        lastContextError = response?.error || lastContextError;
+        if (response?.contextInvalidated) break;
+        continue;
+      }
       const nextCues = Core.normalizeCues(response.cues, Number(response.video?.duration) || Number.POSITIVE_INFINITY);
       if (nextCues.length > state.cues.length || Boolean(response.completeTimeline) !== Boolean(state.context?.completeTimeline)) {
         applyLearningContext(response);
@@ -409,32 +480,42 @@
       }
     }
     state.contextRetrying = false;
-    if (state.cues.length >= 3) await loadAnalysis({ force: true, allowPartial: true });
+    if (state.destroyed) return;
+    if (state.cues.length >= 3) {
+      await loadAnalysis({ force: true, allowPartial: true });
+      return;
+    }
+    elements.analysisLoading.hidden = true;
+    elements.analysisContent.hidden = true;
+    elements.analysisError.hidden = false;
+    elements.useLocalAnalysis.hidden = true;
+    elements.analysisErrorMessage.textContent = lastContextError
+      || "未能从 YouTube 取得足够的英文字幕。请刷新视频页后重试，并确认该视频提供英文字幕。";
   };
 
-  const analysisCacheKey = () => `learning-analysis:v4:${state.context?.video?.id || "unknown"}:${Core.transcriptHash(state.cues)}:${elements.learnerLevel.value}`;
+  const analysisCacheKey = () => `learning-analysis:v5:${state.context?.video?.id || "unknown"}:${Core.transcriptHash(state.cues)}:${elements.learnerLevel.value}`;
 
   const getCachedAnalysis = async () => {
-    if (!hasExtensionApi || !chrome.storage?.local) return null;
+    if (!hasExtensionApi) return null;
     const key = analysisCacheKey();
-    const stored = await chrome.storage.local.get({ learningAnalysisCache: {} });
+    const stored = await readExtensionStorage("local", { learningAnalysisCache: {} });
     const cached = stored.learningAnalysisCache?.[key];
     return Core.isCacheableAnalysis(cached) ? cached : null;
   };
 
   const cacheAnalysis = async (analysis) => {
-    if (!hasExtensionApi || !chrome.storage?.local || !Core.isCacheableAnalysis(analysis)) return;
+    if (!hasExtensionApi || !Core.isCacheableAnalysis(analysis)) return;
     const key = analysisCacheKey();
-    const stored = await chrome.storage.local.get({ learningAnalysisCache: {} });
+    const stored = await readExtensionStorage("local", { learningAnalysisCache: {} });
     const entries = Object.entries(stored.learningAnalysisCache || {}).filter(([entryKey]) => entryKey !== key);
     const learningAnalysisCache = Object.fromEntries([[key, analysis], ...entries].slice(0, 20));
-    await chrome.storage.local.set({ learningAnalysisCache });
+    await writeExtensionStorage("local", { learningAnalysisCache });
   };
 
   const saveAnalysisToHistory = async (analysis) => {
     const History = PST.LearningHistoryCore;
-    if (!History || !hasExtensionApi || !chrome.storage?.local || !state.context?.video) return;
-    const stored = await chrome.storage.local.get({ [History.STORAGE_KEY]: [] });
+    if (!History || !hasExtensionApi || !state.context?.video) return;
+    const stored = await readExtensionStorage("local", { [History.STORAGE_KEY]: [] });
     const history = History.normalizeHistory(stored[History.STORAGE_KEY]);
     const existing = History.findRecord(history, state.context.video);
     if (!existing) return;
@@ -446,7 +527,7 @@
       existing,
       now: Date.now(),
     });
-    await chrome.storage.local.set({ [History.STORAGE_KEY]: History.upsertHistory(history, record) });
+    await writeExtensionStorage("local", { [History.STORAGE_KEY]: History.upsertHistory(history, record) });
   };
 
   const renderLocalAnalysis = () => {
@@ -469,6 +550,7 @@
     elements.analysisLoading.hidden = false;
     elements.analysisError.hidden = true;
     elements.analysisContent.hidden = true;
+    elements.useLocalAnalysis.hidden = false;
     if (!previewMode && !state.context?.completeTimeline && !allowPartial) {
       waitForMoreLearningCues();
       return;
@@ -539,16 +621,21 @@
   const getDiscussionPlan = () => {
     const fallback = Core.createDiscussionQuestions(state.context?.video?.title, state.cues);
     const questions = state.analysis?.discussionQuestions || fallback;
+    const planItem = (question, type) => ({
+      type,
+      text: String(typeof question === "string" ? question : question?.text || "").trim(),
+      evidence: Array.isArray(question?.evidence) ? question.evidence : [],
+    });
     return [
-      ...(questions.source || fallback.source).map((text) => ({ type: "source", text })),
-      ...(questions.advanced || fallback.advanced).map((text) => ({ type: "advanced", text })),
-    ];
+      ...(questions.source || fallback.source).map((question) => planItem(question, "source")),
+      ...(questions.advanced || fallback.advanced).map((question) => planItem(question, "advanced")),
+    ].filter((item) => item.text && item.evidence.length);
   };
 
   const renderQuestionList = (target, questions) => {
     target.replaceChildren(...questions.map((question) => {
       const item = document.createElement("li");
-      item.textContent = question;
+      item.textContent = typeof question === "string" ? question : question?.text || "";
       return item;
     }));
   };
@@ -603,6 +690,7 @@
     elements.discussionStartActions.hidden = false;
     elements.discussionSession.hidden = true;
     elements.discussionForm.hidden = true;
+    elements.discussionIntro.hidden = true;
     elements.discussionSessionOutline.hidden = true;
     elements.discussionOutlineToggle.setAttribute("aria-expanded", "false");
     renderDiscussionOutline();
@@ -621,9 +709,10 @@
     elements.discussionStartActions.hidden = true;
     elements.discussionSession.hidden = false;
     elements.discussionForm.hidden = false;
-    const opening = `你好，我是你的 AI 英语老师。我们会按提纲逐题讨论，我会适时纠正和追问。\n\n${state.discussionPlan[0].text}`;
-    state.messages.push({ role: "assistant", content: opening });
-    appendMessage({ role: "assistant", text: opening });
+    elements.discussionIntro.hidden = false;
+    const openingQuestion = state.discussionPlan[0].text;
+    state.messages.push({ role: "assistant", content: openingQuestion });
+    appendMessage({ role: "assistant", text: openingQuestion });
     updateDiscussionProgress();
     elements.progress.textContent = "2";
     elements.discussionInput.focus();
@@ -702,6 +791,54 @@
     }
   };
 
+  const showRuntimeError = (error) => {
+    if (state.destroyed) return;
+    const contextInvalidated = PST.isExtensionContextInvalidated(error);
+    state.playerReady = false;
+    clearInterval(state.playbackTimer);
+    state.playbackTimer = 0;
+    elements.analysisLoading.hidden = true;
+    elements.analysisContent.hidden = true;
+    elements.analysisError.hidden = false;
+    elements.analysisErrorMessage.textContent = contextInvalidated
+      ? extensionUnavailableMessage
+      : error?.message || "学习模式初始化失败，请刷新页面后重试。";
+    if (contextInvalidated) elements.title.textContent = "扩展需要刷新";
+  };
+
+  const syncEmbeddedPlayback = async () => {
+    if (state.destroyed) return;
+    const playback = await sendMessage({ type: "GET_LEARNING_PLAYBACK" });
+    if (!playback?.ok) {
+      if (playback?.contextInvalidated) {
+        clearInterval(state.playbackTimer);
+        state.playbackTimer = 0;
+      }
+      return;
+    }
+    state.currentTime = Number(playback.currentTime) || 0;
+    if (Number(playback.duration) > 0) state.duration = Number(playback.duration);
+    state.playing = !playback.paused;
+    syncCurrentCue();
+    updateProgressDisplay();
+  };
+
+  const startPlaybackPolling = () => {
+    clearInterval(state.playbackTimer);
+    state.playbackTimer = 0;
+    if (state.destroyed || previewMode) return;
+    if (embeddedMode) {
+      syncEmbeddedPlayback();
+      state.playbackTimer = setInterval(syncEmbeddedPlayback, 500);
+      return;
+    }
+    if (!state.playerReady) return;
+    state.playbackTimer = setInterval(() => {
+      playerCommand("getCurrentTime");
+      playerCommand("getDuration");
+    }, 500);
+  };
+
   const configurePlayer = () => {
     if (previewMode || embeddedMode) return;
     const videoId = state.context.video.id || Core.extractYouTubeVideoId(state.context.video.url);
@@ -711,19 +848,22 @@
       return;
     }
     const origin = encodeURIComponent(location.origin);
-    elements.player.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?enablejsapi=1&playsinline=1&rel=0&origin=${origin}&start=${Math.floor(state.currentTime)}`;
-    elements.player.hidden = false;
-    elements.poster.hidden = true;
+    state.playerReady = false;
     elements.player.addEventListener("load", () => {
-      elements.player.contentWindow?.postMessage(JSON.stringify({ event: "listening", id: "engram-player" }), "https://www.youtube-nocookie.com");
+      state.playerReady = true;
+      if (!postPlayerMessage({ event: "listening", id: "engram-player" })) return;
       playerCommand("getDuration");
       playerCommand("getCurrentTime");
+      startPlaybackPolling();
     }, { once: true });
+    elements.player.src = `${PLAYER_ORIGIN}/embed/${encodeURIComponent(videoId)}?enablejsapi=1&playsinline=1&rel=0&origin=${origin}&start=${Math.floor(state.currentTime)}`;
+    elements.player.hidden = false;
+    elements.poster.hidden = true;
   };
 
   const initialize = async () => {
-    const storedLevel = hasExtensionApi && chrome.storage?.sync
-      ? await chrome.storage.sync.get({ learnerLevel: "B1" })
+    const storedLevel = hasExtensionApi
+      ? await readExtensionStorage("sync", { learnerLevel: "B1" })
       : { learnerLevel: "B1" };
     elements.learnerLevel.value = Core.sanitizeLevel(storedLevel.learnerLevel, "B1").replace("+", "") || "B1";
     let response = previewMode ? SAMPLE_CONTEXT : null;
@@ -755,6 +895,7 @@
     }
     elements.shell.dataset.state = "ready";
     configurePlayer();
+    if (embeddedMode) startPlaybackPolling();
     await loadAnalysis();
   };
 
@@ -778,11 +919,13 @@
   elements.retryAnalysis.addEventListener("click", () => loadAnalysis({ force: true }));
   elements.useLocalAnalysis.addEventListener("click", renderLocalAnalysis);
   elements.refreshAnalysis.addEventListener("click", () => loadAnalysis({ force: true }));
-  elements.learnerLevel.addEventListener("change", async () => {
-    if (hasExtensionApi && chrome.storage?.sync) await chrome.storage.sync.set({ learnerLevel: elements.learnerLevel.value });
-    state.analysis = null;
-    resetDiscussionSession();
-    await loadAnalysis();
+  elements.learnerLevel.addEventListener("change", () => {
+    (async () => {
+      if (hasExtensionApi) await writeExtensionStorage("sync", { learnerLevel: elements.learnerLevel.value });
+      state.analysis = null;
+      resetDiscussionSession();
+      await loadAnalysis();
+    })().catch(showRuntimeError);
   });
   elements.startDiscussion.addEventListener("click", startDiscussion);
   elements.discussionOutlineToggle.addEventListener("click", () => {
@@ -820,28 +963,12 @@
     updateProgressDisplay();
   });
 
-  if (embeddedMode) {
-    const syncPlayback = async () => {
-      const playback = await sendMessage({ type: "GET_LEARNING_PLAYBACK" });
-      if (!playback?.ok) return;
-      state.currentTime = Number(playback.currentTime) || 0;
-      if (Number(playback.duration) > 0) state.duration = Number(playback.duration);
-      state.playing = !playback.paused;
-      syncCurrentCue();
-      updateProgressDisplay();
-    };
-    syncPlayback();
-    state.playbackTimer = setInterval(syncPlayback, 500);
-  } else if (!previewMode) {
-    state.playbackTimer = setInterval(() => {
-      playerCommand("getCurrentTime");
-      playerCommand("getDuration");
-    }, 500);
-  }
-
   window.addEventListener("pagehide", () => {
+    state.destroyed = true;
+    state.playerReady = false;
+    state.contextRetrying = false;
     clearInterval(state.previewTimer);
     clearInterval(state.playbackTimer);
   });
-  initialize();
+  initialize().catch(showRuntimeError);
 })();

@@ -10,6 +10,11 @@
   const SELECTED_TRACKS = new WeakMap();
   const ORIGINAL_TRACK_MODES = new WeakMap();
   const FETCHED_CAPTION_TRACKS = new Set();
+  const PENDING_CAPTION_TRACKS = new Set();
+  const CAPTION_TRACK_ATTEMPTS = new Map();
+  const YOUTUBE_PO_TOKENS = new Map();
+  const YOUTUBE_NATIVE_TRACK_ATTEMPTS = new Map();
+  let managedYouTubeCaptions = null;
   let captureEnabled = false;
   let shouldHideNative = true;
   let sourceLanguage = "en";
@@ -180,10 +185,12 @@
       || hostname.endsWith(".youtube-nocookie.com");
   };
 
+  const youtubePlayer = () => document.querySelector("#movie_player");
+
   const youtubePlayerResponse = () => {
     if (!isYouTubePage()) return null;
     try {
-      const response = document.querySelector("#movie_player")?.getPlayerResponse?.();
+      const response = youtubePlayer()?.getPlayerResponse?.();
       if (response?.videoDetails?.videoId) return response;
     } catch {
       // YouTube can replace the player while navigating between videos.
@@ -191,17 +198,66 @@
     return globalThis.ytInitialPlayerResponse || null;
   };
 
-  const currentMediaKey = (requestUrl = "") => {
+  const youtubeVideoId = (requestUrl = "") => {
     try {
       const url = new URL(String(requestUrl || location.href), location.href);
       const videoId = url.searchParams.get("v");
-      if (videoId && isYouTubePage()) return `youtube:${videoId}`;
+      if (videoId) return videoId;
     } catch {
-      // A relative or malformed diagnostic URL does not need a media key.
+      // Player request bodies and the current player response remain available below.
     }
-    const playerVideoId = youtubePlayerResponse()?.videoDetails?.videoId;
-    if (playerVideoId) return `youtube:${playerVideoId}`;
+    return youtubePlayerResponse()?.videoDetails?.videoId || "";
+  };
+
+  const currentMediaKey = (requestUrl = "") => {
+    const videoId = isYouTubePage() ? youtubeVideoId(requestUrl) : "";
+    if (videoId) return `youtube:${videoId}`;
     return location.href;
+  };
+
+  const parseYouTubePlayerBody = (body) => {
+    if (!body) return null;
+    if (typeof body === "object" && !(body instanceof URLSearchParams)) return body;
+    try {
+      return JSON.parse(body instanceof URLSearchParams ? body.toString() : String(body));
+    } catch {
+      return null;
+    }
+  };
+
+  const rememberYouTubePoToken = (requestUrl, body) => {
+    if (!isYouTubePage() || !/\/youtubei\/v1\/player(?:[/?]|$)/i.test(String(requestUrl || ""))) return false;
+    const payload = parseYouTubePlayerBody(body);
+    const token = String(
+      payload?.serviceIntegrityDimensions?.poToken
+      || payload?.context?.serviceIntegrityDimensions?.poToken
+      || "",
+    ).trim();
+    const videoId = String(payload?.videoId || youtubeVideoId()).trim();
+    if (!token || !videoId) return false;
+    const clientName = String(payload?.context?.client?.clientName || "WEB").trim() || "WEB";
+    const changed = YOUTUBE_PO_TOKENS.get(videoId)?.token !== token;
+    YOUTUBE_PO_TOKENS.set(videoId, { token, clientName });
+    if (YOUTUBE_PO_TOKENS.size > 20) YOUTUBE_PO_TOKENS.delete(YOUTUBE_PO_TOKENS.keys().next().value);
+    if (changed) {
+      post("YOUTUBE_PO_TOKEN_CAPTURED", { videoId, clientName, tokenLength: token.length });
+      scheduleVideoScan();
+    }
+    return changed;
+  };
+
+  const inspectYouTubePlayerRequest = async (input, init = {}) => {
+    const requestUrl = input instanceof Request ? input.url : String(input || "");
+    if (!/\/youtubei\/v1\/player(?:[/?]|$)/i.test(requestUrl)) return;
+    let body = init?.body;
+    if (!body && input instanceof Request) {
+      try {
+        body = await input.clone().text();
+      } catch {
+        return;
+      }
+    }
+    rememberYouTubePoToken(requestUrl, body);
   };
 
   const youtubeTrackScore = (track, index) => {
@@ -212,6 +268,112 @@
     if (track.kind !== "asr") score += 25;
     if (track.isTranslatable === false) score += 1;
     return score - (index / 1000);
+  };
+
+  const deferCaptionTrackRetry = (requestKey) => {
+    const attempt = (CAPTION_TRACK_ATTEMPTS.get(requestKey)?.attempt || 0) + 1;
+    const retryInMs = Math.min(30_000, 1_000 * (2 ** Math.min(attempt - 1, 5)));
+    CAPTION_TRACK_ATTEMPTS.set(requestKey, { attempt, nextAttemptAt: Date.now() + retryInMs });
+    setTimeout(scheduleVideoScan, retryInMs);
+    return { attempt, retryInMs };
+  };
+
+  const youtubeCaptionModule = (player) => {
+    try {
+      const options = player?.getOptions?.() || [];
+      if (options.includes("captions")) return "captions";
+      if (options.includes("cc")) return "cc";
+    } catch {
+      // The captions module can still be loaded explicitly below.
+    }
+    return "";
+  };
+
+  const requestYouTubeNativeCaptionTrack = (track, mediaKey) => {
+    const player = youtubePlayer();
+    if (!player || typeof player.setOption !== "function") {
+      return { requested: false, reason: "player-api-unavailable" };
+    }
+    const requestKey = `${mediaKey}:${track.languageCode || ""}:${track.kind || ""}`;
+    const lastAttemptAt = YOUTUBE_NATIVE_TRACK_ATTEMPTS.get(requestKey) || 0;
+    if (Date.now() - lastAttemptAt < 5_000) return { requested: false, reason: "cooldown" };
+
+    try {
+      const originalModule = youtubeCaptionModule(player);
+      if (!managedYouTubeCaptions || managedYouTubeCaptions.player !== player) {
+        let originalTrack = null;
+        try {
+          originalTrack = originalModule ? player.getOption?.(originalModule, "track") || null : null;
+        } catch {
+          originalTrack = null;
+        }
+        managedYouTubeCaptions = {
+          player,
+          originalModule,
+          originalTrack,
+          subtitlesOn: Boolean(player.isSubtitlesOn?.()),
+        };
+      }
+
+      player.loadModule?.("captions");
+      const module = youtubeCaptionModule(player) || "captions";
+      let trackList = [];
+      try {
+        trackList = player.getOption?.(module, "tracklist") || [];
+      } catch {
+        trackList = [];
+      }
+      const requestedLanguage = String(track.languageCode || "").toLowerCase().replace(/_/g, "-");
+      const playerTrack = trackList.find((candidate) => candidate?.vssId && candidate.vssId === track.vssId)
+        || trackList.find((candidate) => {
+          const language = String(candidate?.languageCode || "").toLowerCase().replace(/_/g, "-");
+          return language === requestedLanguage && String(candidate?.kind || "") === String(track.kind || "");
+        })
+        || trackList.find((candidate) => {
+          const language = String(candidate?.languageCode || "").toLowerCase().replace(/_/g, "-");
+          return language === requestedLanguage || language.startsWith(`${requestedLanguage}-`);
+        });
+      const option = {
+        languageCode: playerTrack?.languageCode || track.languageCode || sourceLanguage,
+      };
+      const vssId = playerTrack?.vssId || track.vssId;
+      const kind = playerTrack?.kind || track.kind;
+      if (vssId) option.vssId = vssId;
+      if (kind) option.kind = kind;
+      player.setOption(module, "track", option);
+      if (player.isSubtitlesOn?.() === false) player.toggleSubtitlesOn?.();
+      player.setOption(module, "reload", Date.now());
+      YOUTUBE_NATIVE_TRACK_ATTEMPTS.set(requestKey, Date.now());
+      post("YOUTUBE_NATIVE_TRACK_REQUESTED", {
+        language: option.languageCode,
+        kind: option.kind || "subtitles",
+        module,
+        mediaKey,
+        trackCount: trackList.length,
+      });
+      return { requested: true, module, trackCount: trackList.length };
+    } catch (error) {
+      post("YOUTUBE_NATIVE_TRACK_ERROR", {
+        language: track.languageCode || "",
+        mediaKey,
+        message: error?.message || "Unable to ask the YouTube player to load captions",
+      });
+      return { requested: false, reason: "player-api-error" };
+    }
+  };
+
+  const restoreYouTubeNativeCaptions = () => {
+    const state = managedYouTubeCaptions;
+    managedYouTubeCaptions = null;
+    if (!state?.player) return;
+    try {
+      const module = youtubeCaptionModule(state.player) || "captions";
+      if (state.originalTrack) state.player.setOption?.(module, "track", state.originalTrack);
+      if (Boolean(state.player.isSubtitlesOn?.()) !== state.subtitlesOn) state.player.toggleSubtitlesOn?.();
+      if (!state.originalModule) state.player.unloadModule?.("captions");
+    } catch {
+      // YouTube may replace the player during SPA navigation.
+    }
   };
 
   const loadYouTubeCaptionTrack = async () => {
@@ -225,34 +387,88 @@
     if (!selected) return;
 
     const mediaKey = currentMediaKey(selected.baseUrl);
-    const requestKey = `${mediaKey}:${selected.baseUrl}`;
-    if (FETCHED_CAPTION_TRACKS.has(requestKey)) return;
+    const videoId = mediaKey.startsWith("youtube:") ? mediaKey.slice("youtube:".length) : youtubeVideoId(selected.baseUrl);
+    const url = new URL(selected.baseUrl, location.href);
+    url.searchParams.set("fmt", "json3");
+    const poToken = YOUTUBE_PO_TOKENS.get(videoId);
+    if (poToken?.token && !url.searchParams.has("pot")) url.searchParams.set("pot", poToken.token);
+    if (url.searchParams.has("pot")) {
+      if (!url.searchParams.has("potc")) url.searchParams.set("potc", "1");
+      if (!url.searchParams.has("c")) url.searchParams.set("c", poToken?.clientName || "WEB");
+    }
+    const hasPoToken = url.searchParams.has("pot");
+    const requestKey = `${mediaKey}:${url.toString()}`;
+    if (FETCHED_CAPTION_TRACKS.has(requestKey) || PENDING_CAPTION_TRACKS.has(requestKey)) return;
+    if ((CAPTION_TRACK_ATTEMPTS.get(requestKey)?.nextAttemptAt || 0) > Date.now()) return;
     if (FETCHED_CAPTION_TRACKS.size > 20) FETCHED_CAPTION_TRACKS.clear();
-    FETCHED_CAPTION_TRACKS.add(requestKey);
+    if (CAPTION_TRACK_ATTEMPTS.size > 40) CAPTION_TRACK_ATTEMPTS.clear();
+    PENDING_CAPTION_TRACKS.add(requestKey);
 
     try {
-      const url = new URL(selected.baseUrl, location.href);
-      url.searchParams.set("fmt", "json3");
       const captionResponse = await Reflect.apply(nativeFetch, window, [url.toString()]);
       if (!captionResponse?.ok) {
+        if (!hasPoToken && [401, 403].includes(Number(captionResponse?.status))) {
+          const retry = deferCaptionTrackRetry(requestKey);
+          const nativeTrack = requestYouTubeNativeCaptionTrack(selected, mediaKey);
+          post("YOUTUBE_TRACK_WAITING_FOR_TOKEN", {
+            language: selected.languageCode || "",
+            mediaKey,
+            status: Number(captionResponse.status),
+            nativeTrack,
+            ...retry,
+          });
+          return;
+        }
         throw new Error(`YouTube captions returned ${captionResponse?.status || "an error"}`);
       }
-      await inspectResponse(captionResponse, url.toString(), {
+      const inspected = await inspectResponse(captionResponse, url.toString(), {
         captionKind: selected.kind || "subtitles",
         captionLanguage: selected.languageCode || "",
+        expectYouTubeJson3: true,
+        forceInspect: true,
       });
+      if (!inspected.ok) {
+        if (!hasPoToken && ["empty", "invalid"].includes(inspected.reason)) {
+          const retry = deferCaptionTrackRetry(requestKey);
+          const nativeTrack = requestYouTubeNativeCaptionTrack(selected, mediaKey);
+          post("YOUTUBE_TRACK_WAITING_FOR_TOKEN", {
+            language: selected.languageCode || "",
+            mediaKey,
+            reason: inspected.reason,
+            nativeTrack,
+            ...retry,
+          });
+          return;
+        }
+        throw new Error({
+          empty: "YouTube captions returned an empty response",
+          invalid: "YouTube captions returned no usable cues",
+          too_large: "YouTube captions exceeded the capture limit",
+          unreadable: "YouTube captions could not be read",
+          unrecognized: "YouTube captions returned an unsupported response",
+        }[inspected.reason] || "Unable to inspect YouTube captions");
+      }
+      CAPTION_TRACK_ATTEMPTS.delete(requestKey);
+      FETCHED_CAPTION_TRACKS.add(requestKey);
       post("YOUTUBE_TRACK_SELECTED", {
         language: selected.languageCode || "",
         label: selected.name?.simpleText || selected.name?.runs?.map((run) => run.text).join("") || "",
         kind: selected.kind || "subtitles",
         mediaKey,
+        cueCount: inspected.cueCount,
+        authorized: hasPoToken,
       });
     } catch (error) {
-      FETCHED_CAPTION_TRACKS.delete(requestKey);
+      const retry = deferCaptionTrackRetry(requestKey);
+      const nativeTrack = requestYouTubeNativeCaptionTrack(selected, mediaKey);
       post("YOUTUBE_TRACK_ERROR", {
         language: selected.languageCode || "",
         message: error?.message || "Unable to load YouTube captions",
+        nativeTrack,
+        ...retry,
       });
+    } finally {
+      PENDING_CAPTION_TRACKS.delete(requestKey);
     }
   };
 
@@ -275,30 +491,78 @@
     return /(caption|subtitle|timedtext|webvtt|\.vtt(?:\?|$)|\.ttml(?:\?|$)|\.dfxp(?:\?|$)|\.smi(?:\?|$)|\.smil(?:\?|$)|\.m3u8(?:\?|$)|text\/vtt|ttml\+xml)/i.test(value);
   };
 
+  const youtubeCaptionResourceDetail = (value) => {
+    try {
+      const url = new URL(String(value || ""), location.href);
+      if (!/\/api\/timedtext(?:[/?]|$)/i.test(url.pathname)) return {};
+      return {
+        captionKind: url.searchParams.get("kind") || "subtitles",
+        captionLanguage: url.searchParams.get("lang") || "",
+      };
+    } catch {
+      return {};
+    }
+  };
+
+  const diagnosticResourceUrl = (value) => {
+    try {
+      const url = new URL(String(value || ""), location.href);
+      if (url.searchParams.has("pot")) url.searchParams.set("pot", "redacted");
+      return url.toString();
+    } catch {
+      return String(value || "");
+    }
+  };
+
+  const inspectYouTubeJson3 = (body) => {
+    try {
+      const payload = JSON.parse(String(body || "").trimStart().replace(/^\)\]\}'\s*/, ""));
+      const cueCount = (Array.isArray(payload?.events) ? payload.events : []).filter((event) => (
+        Number.isFinite(Number(event?.tStartMs))
+        && Array.isArray(event?.segs)
+        && normalize(event.segs.map((segment) => segment?.utf8 || "").join(""))
+      )).length;
+      return { valid: cueCount > 0, cueCount };
+    } catch {
+      return { valid: false, cueCount: 0 };
+    }
+  };
+
   const inspectResponse = async (response, requestUrl, resourceDetail = {}) => {
     const url = response?.url || String(requestUrl || "");
     const contentType = response?.headers?.get?.("content-type") || "";
-    if (!isCandidateResource(url, contentType)) return;
+    const {
+      expectYouTubeJson3 = false,
+      forceInspect = false,
+      ...publicDetail
+    } = resourceDetail;
+    if (!forceInspect && !isCandidateResource(url, contentType)) return { ok: false, reason: "unrecognized" };
     try {
       const body = await response.clone().text();
-      if (!body || body.length > 2_000_000) return;
+      if (!body) return { ok: false, reason: "empty" };
+      if (body.length > 2_000_000) return { ok: false, reason: "too_large" };
+      const youtubeJson3 = expectYouTubeJson3 ? inspectYouTubeJson3(body) : null;
+      if (youtubeJson3 && !youtubeJson3.valid) return { ok: false, reason: "invalid", cueCount: 0 };
       post("NETWORK_RESOURCE", {
-        ...resourceDetail,
-        url,
+        ...publicDetail,
+        url: diagnosticResourceUrl(url),
         contentType,
         body,
         mediaKey: currentMediaKey(url),
         pageUrl: location.href,
       });
-    } catch {
-      // Opaque or streaming responses cannot be cloned as text.
+      return { ok: true, cueCount: youtubeJson3?.cueCount || 0 };
+    } catch (error) {
+      return { ok: false, reason: "unreadable", message: error?.message || "Response body could not be read" };
     }
   };
 
   const nativeFetch = window.fetch;
   window.fetch = async function paramountSubtitleFetch(...args) {
+    inspectYouTubePlayerRequest(args[0], args[1]).catch(() => undefined);
     const response = await Reflect.apply(nativeFetch, this, args);
-    inspectResponse(response, args[0] instanceof Request ? args[0].url : args[0]);
+    const requestUrl = args[0] instanceof Request ? args[0].url : args[0];
+    inspectResponse(response, requestUrl, youtubeCaptionResourceDetail(requestUrl));
     return response;
   };
 
@@ -324,7 +588,8 @@
       }
       if (body && body.length <= 2_000_000) {
         post("NETWORK_RESOURCE", {
-          url: responseUrl,
+          ...youtubeCaptionResourceDetail(responseUrl),
+          url: diagnosticResourceUrl(responseUrl),
           contentType,
           body,
           mediaKey: currentMediaKey(responseUrl),
@@ -334,6 +599,14 @@
     }, { once: true });
     return Reflect.apply(nativeOpen, this, [method, url, ...rest]);
   };
+
+  const nativeSend = XMLHttpRequest.prototype.send;
+  if (typeof nativeSend === "function") {
+    XMLHttpRequest.prototype.send = function paramountSubtitleSend(body) {
+      rememberYouTubePoToken(this.__pstUrl, body);
+      return Reflect.apply(nativeSend, this, [body]);
+    };
+  }
 
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.data?.source !== CONTENT_SOURCE) return;
@@ -346,6 +619,7 @@
       captureEnabled = event.data.type === "SET_NATIVE_VISIBILITY"
         ? true
         : Boolean(detail.enabled);
+      if (!captureEnabled) restoreYouTubeNativeCaptions();
       shouldHideNative = Boolean(detail.hide);
       sourceLanguage = String(detail.sourceLanguage || sourceLanguage || "en");
       scanVideos();

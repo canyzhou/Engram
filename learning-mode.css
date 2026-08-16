@@ -250,7 +250,8 @@ button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
 .discussion-session-outline li[data-state="complete"]::before { border-color: var(--accent); background: var(--accent); }
 .discussion-session-outline li[data-state="current"] { color: var(--text); }
 .discussion-session-outline li[data-state="current"]::before { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.discussion-messages { min-height: 0; flex: 1; padding: 17px 0; overflow-y: auto; scrollbar-color: var(--border) transparent; }
+.discussion-intro { flex: 0 0 auto; margin: 14px 2px 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.discussion-messages { min-height: 0; flex: 1; padding: 8px 0 17px; overflow-y: auto; scrollbar-color: var(--border) transparent; }
 .discussion-messages:empty { display: none; }
 .message { max-width: 92%; margin-bottom: 16px; }
 .message[data-role="user"] { margin-left: auto; }

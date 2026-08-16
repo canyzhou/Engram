@@ -4,123 +4,150 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title data-i18n="learningSettingsTitle">Vocabulary hint settings · Engram</title>
-    <link rel="stylesheet" href="learning-settings.css">
+    <link rel="stylesheet" href="learning-settings.css?v=0.6.4-dashboard">
   </head>
   <body>
-    <header class="topbar">
-      <a class="brand" href="learning-settings.html" aria-label="Vocabulary hint settings home" data-i18n-aria-label="vocabularySettingsHome">
-        <img src="assets/icons/icon-48.png?v=0.6.0" width="38" height="38" alt="">
-        <span>
+    <div class="settings-shell">
+      <aside class="sidebar" aria-label="Engram navigation">
+        <a class="brand" href="dashboard.html" aria-label="Engram learning dashboard">
+          <img src="assets/icons/icon-32.png" width="30" height="30" alt="">
           <strong data-i18n="brandName">Engram</strong>
-          <small>Immersive English</small>
-        </span>
-      </a>
-      <p class="save-status" id="save-status" role="status" aria-live="polite">
-        <span aria-hidden="true"></span>
-        <span data-i18n="autoSave">Changes are saved automatically</span>
-      </p>
-    </header>
-
-    <main>
-      <section class="page-heading" aria-labelledby="page-title">
-        <div>
-          <a class="back-link" href="popup.html">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 4-6 6 6 6"/></svg>
-            <span data-i18n="backToSettings">Back to extension settings</span>
+        </a>
+        <nav class="primary-nav" aria-label="Primary navigation">
+          <a class="nav-link" href="dashboard.html">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v13H5z"/><path d="M8 4.5h8v4H8zM9 12h6M9 15.5h4"/></svg>
+            <span data-i18n="learningArchive">Learning archive</span>
           </a>
-          <h1 id="page-title" data-i18n="chooseVocabularyLevels">Choose vocabulary levels</h1>
-          <p data-i18n="chooseVocabularyIntro">Highlight only words that genuinely challenge you. The default starts at C1.</p>
-        </div>
-        <label class="master-switch" for="learning-hints">
-          <span>
-            <strong data-i18n="difficultWordHints">Vocabulary hints</strong>
-            <small id="master-copy">Enabled</small>
-          </span>
-          <span class="switch">
-            <input id="learning-hints" type="checkbox">
-            <span class="switch__track"><span class="switch__thumb"></span></span>
-          </span>
-        </label>
-      </section>
+          <a class="nav-link" href="dashboard.html?view=vocabulary">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h9a3 3 0 0 1 3 3v13H9a3 3 0 0 1-3-3V4Z"/><path d="M6 16h9M10 8h4"/></svg>
+            <span data-i18n="wordBank">Word bank</span>
+          </a>
+        </nav>
+        <a class="nav-link settings-link" href="learning-settings.html" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.8 7.8 0 0 0 .05-3l1.75-1.34-2-3.46-2.18.9a8 8 0 0 0-2.58-1.5L14.1 2.8h-4l-.34 2.3a8 8 0 0 0-2.58 1.5L5 5.7 3 9.16l1.75 1.34a7.8 7.8 0 0 0 .05 3L3 14.84l2 3.46 2.24-.92a8 8 0 0 0 2.52 1.45l.34 2.37h4l.34-2.37a8 8 0 0 0 2.52-1.45l2.24.92 2-3.46-1.8-1.34Z"/></svg>
+          <span data-i18n="settings">Settings</span>
+        </a>
+      </aside>
 
-      <section class="level-section" aria-labelledby="level-title">
-        <div class="section-heading">
+      <main class="settings-main">
+        <header class="page-header" aria-labelledby="page-title">
           <div>
-            <h2 id="level-title" data-i18n="highlightLevelsTitle">Highlight levels</h2>
-            <p data-i18n="highlightLevelsIntro">Choose one or more CEFR levels. Lower rows contain fewer, harder words.</p>
+            <h1 id="page-title" data-i18n="chooseVocabularyLevels">Choose vocabulary levels</h1>
+            <p data-i18n="chooseVocabularyIntro">Highlight only words that genuinely challenge you. The default starts at C1.</p>
           </div>
-          <strong id="selected-count">2 selected</strong>
-        </div>
+          <div class="page-header-actions">
+            <p class="save-status" id="save-status" role="status" aria-live="polite">
+              <span class="save-status__dot" aria-hidden="true"></span>
+              <span data-i18n="autoSave">Changes are saved automatically</span>
+            </p>
+            <button class="mobile-nav-button" id="mobile-nav-button" type="button" aria-label="Open navigation" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+            </button>
+          </div>
+        </header>
 
-        <div class="level-list" id="level-list">
-          <label class="level-row" data-level="b1">
-            <input type="checkbox" name="learning-level" value="b1">
-            <span class="level-check" aria-hidden="true">
-              <svg viewBox="0 0 18 18"><path d="m4 9.5 3 3 7-7"/></svg>
-            </span>
-            <span class="level-code">B1</span>
-            <span class="level-copy">
-              <strong data-i18n="levelIntermediate">Intermediate</strong>
-              <small data-i18n="levelIntermediateHelp">Common story and everyday vocabulary for learners starting without native subtitles</small>
-            </span>
-            <span class="level-examples"><i>admire</i><i>mysterious</i><i>artifact</i></span>
-          </label>
-
-          <label class="level-row" data-level="b2">
-            <input type="checkbox" name="learning-level" value="b2">
-            <span class="level-check" aria-hidden="true">
-              <svg viewBox="0 0 18 18"><path d="m4 9.5 3 3 7-7"/></svg>
-            </span>
-            <span class="level-code">B2</span>
-            <span class="level-copy">
-              <strong data-i18n="levelUpperIntermediate">Upper intermediate</strong>
-              <small data-i18n="levelUpperIntermediateHelp">Abstract language and complex story vocabulary for steady dialogue comprehension</small>
-            </span>
-            <span class="level-examples"><i>resilient</i><i>inevitable</i><i>reluctant</i></span>
-          </label>
-
-          <label class="level-row level-row--recommended" data-level="c1">
-            <input type="checkbox" name="learning-level" value="c1">
-            <span class="level-check" aria-hidden="true">
-              <svg viewBox="0 0 18 18"><path d="m4 9.5 3 3 7-7"/></svg>
-            </span>
-            <span class="level-code">C1</span>
-            <span class="level-copy">
-              <strong><span data-i18n="levelAdvanced">Advanced</span> <em data-i18n="recommended">Recommended</em></strong>
-              <small data-i18n="levelAdvancedHelp">Precise, lower-frequency vocabulary that is worth pausing for</small>
-            </span>
-            <span class="level-examples"><i>ambiguous</i><i>convoluted</i><i>scrutiny</i></span>
-          </label>
-
-          <label class="level-row" data-level="c2">
-            <input type="checkbox" name="learning-level" value="c2">
-            <span class="level-check" aria-hidden="true">
-              <svg viewBox="0 0 18 18"><path d="m4 9.5 3 3 7-7"/></svg>
-            </span>
-            <span class="level-code">C2</span>
-            <span class="level-copy">
-              <strong data-i18n="levelMastery">Mastery</strong>
-              <small data-i18n="levelMasteryHelp">Rare, specialist, or literary vocabulary for near-native learners</small>
-            </span>
-            <span class="level-examples"><i>esoteric</i><i>obfuscate</i><i>perspicacious</i></span>
-          </label>
-        </div>
-      </section>
-
-      <section class="preview-panel" aria-labelledby="preview-title">
-        <div class="preview-panel__heading">
-          <div>
-            <h2 id="preview-title" data-i18n="highlightPreview">Subtitle highlight preview</h2>
+        <section class="master-panel" aria-labelledby="master-title">
+          <span class="master-panel__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M6 4h9a3 3 0 0 1 3 3v13H9a3 3 0 0 1-3-3V4Z"/><path d="M6 16h9M10 8h4"/></svg>
+          </span>
+          <div class="master-panel__copy">
+            <h2 id="master-title" data-i18n="difficultWordHints">Vocabulary hints</h2>
             <p data-i18n="highlightPreviewHelp">Highlighted words show a short Chinese meaning beneath them.</p>
           </div>
-          <span id="preview-summary">C1 · C2</span>
-        </div>
-        <p class="preview-sentence" id="preview-sentence" lang="en"></p>
-        <p class="empty-preview" id="empty-preview" hidden data-i18n="selectLevelPreview">Select at least one level to preview the effect.</p>
-      </section>
+          <label class="master-switch" for="learning-hints">
+            <strong id="master-copy">Enabled</strong>
+            <span class="switch">
+              <input id="learning-hints" type="checkbox">
+              <span class="switch__track"><span class="switch__thumb"></span></span>
+            </span>
+          </label>
+        </section>
 
-      <p class="settings-note" data-i18n="vocabularyMethodNote">Levels combine frequency lists, lemmatization, and difficulty features.</p>
-    </main>
+        <section class="level-section" aria-labelledby="level-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="level-title" data-i18n="highlightLevelsTitle">Highlight levels</h2>
+              <p data-i18n="highlightLevelsIntro">Choose one or more CEFR levels. Lower rows contain fewer, harder words.</p>
+            </div>
+            <strong id="selected-count">2 selected</strong>
+          </div>
+
+          <div class="level-list" id="level-list">
+            <label class="level-row" data-level="b1">
+              <input type="checkbox" name="learning-level" value="b1">
+              <span class="level-check" aria-hidden="true">
+                <svg viewBox="0 0 18 18"><path d="m4 9.5 3 3 7-7"/></svg>
+              </span>
+              <span class="level-code">B1</span>
+              <span class="level-copy">
+                <strong data-i18n="levelIntermediate">Intermediate</strong>
+                <small data-i18n="levelIntermediateHelp">Common story and everyday vocabulary for learners starting without native subtitles</small>
+              </span>
+              <span class="level-examples"><i>admire</i><i>mysterious</i><i>artifact</i></span>
+            </label>
+
+            <label class="level-row" data-level="b2">
+              <input type="checkbox" name="learning-level" value="b2">
+              <span class="level-check" aria-hidden="true">
+                <svg viewBox="0 0 18 18"><path d="m4 9.5 3 3 7-7"/></svg>
+              </span>
+              <span class="level-code">B2</span>
+              <span class="level-copy">
+                <strong data-i18n="levelUpperIntermediate">Upper intermediate</strong>
+                <small data-i18n="levelUpperIntermediateHelp">Abstract language and complex story vocabulary for steady dialogue comprehension</small>
+              </span>
+              <span class="level-examples"><i>resilient</i><i>inevitable</i><i>reluctant</i></span>
+            </label>
+
+            <label class="level-row level-row--recommended" data-level="c1">
+              <input type="checkbox" name="learning-level" value="c1">
+              <span class="level-check" aria-hidden="true">
+                <svg viewBox="0 0 18 18"><path d="m4 9.5 3 3 7-7"/></svg>
+              </span>
+              <span class="level-code">C1</span>
+              <span class="level-copy">
+                <strong><span data-i18n="levelAdvanced">Advanced</span> <em data-i18n="recommended">Recommended</em></strong>
+                <small data-i18n="levelAdvancedHelp">Precise, lower-frequency vocabulary that is worth pausing for</small>
+              </span>
+              <span class="level-examples"><i>ambiguous</i><i>convoluted</i><i>scrutiny</i></span>
+            </label>
+
+            <label class="level-row" data-level="c2">
+              <input type="checkbox" name="learning-level" value="c2">
+              <span class="level-check" aria-hidden="true">
+                <svg viewBox="0 0 18 18"><path d="m4 9.5 3 3 7-7"/></svg>
+              </span>
+              <span class="level-code">C2</span>
+              <span class="level-copy">
+                <strong data-i18n="levelMastery">Mastery</strong>
+                <small data-i18n="levelMasteryHelp">Rare, specialist, or literary vocabulary for near-native learners</small>
+              </span>
+              <span class="level-examples"><i>esoteric</i><i>obfuscate</i><i>perspicacious</i></span>
+            </label>
+          </div>
+        </section>
+
+        <section class="preview-panel" aria-labelledby="preview-title">
+          <div class="preview-panel__heading">
+            <div>
+              <h2 id="preview-title" data-i18n="highlightPreview">Subtitle highlight preview</h2>
+              <p data-i18n="highlightPreviewHelp">Highlighted words show a short Chinese meaning beneath them.</p>
+            </div>
+            <span id="preview-summary">C1 · C2</span>
+          </div>
+          <div class="preview-stage">
+            <span class="preview-stage__label" aria-hidden="true">CC</span>
+            <p class="preview-sentence" id="preview-sentence" lang="en"></p>
+            <p class="empty-preview" id="empty-preview" hidden data-i18n="selectLevelPreview">Select at least one level to preview the effect.</p>
+          </div>
+        </section>
+
+        <p class="settings-note">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8h.01"/></svg>
+          <span data-i18n="vocabularyMethodNote">Levels combine frequency lists, lemmatization, and difficulty features.</span>
+        </p>
+      </main>
+    </div>
     <script src="src/namespace.js"></script>
     <script src="src/i18n.js"></script>
     <script src="learning-settings.js"></script>
