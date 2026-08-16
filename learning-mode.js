@@ -40,13 +40,58 @@
     speechLevel: "B1+",
     syntaxLevel: "B2",
     fitVerdict: "有挑战，但适合精学",
+    fitReasons: [
+      "叙事清楚、上下文连续，B1 学习者能抓住主线，同时会遇到少量 B2 旅行与自我成长表达。",
+      "说话者会用自然口语描述计划、感受和观点，适合练习从听懂事实过渡到理解态度。",
+    ],
+    learningOutcomes: [
+      "掌握旅行计划、徒步体验和表达兴奋感的地道说法。",
+      "练习被动语态、比较级以及解释个人观点的长句。",
+      "用视频中的表达复述一次挑战并说明它带来的改变。",
+    ],
     studyMinutes: 12,
     recommendedRange: { start: 260, end: 490 },
     difficultRanges: [{ start: 260, end: 330 }, { start: 382, end: 480 }],
-    expressions: [
-      { expression: "absolutely epic hike", meaningZh: "非常精彩的徒步旅行", why: "用加强语气描述一次难忘的行程", timestamp: 91 },
-      { expression: "roughly", meaningZh: "大约；大致", why: "估算时间和数量时很常用", timestamp: 26 },
-      { expression: "have been told", meaningZh: "曾被告知；别人一直这样告诉我", why: "转述他人建议时很常用", timestamp: 78 },
+    timelineSegments: [
+      {
+        start: 260, end: 330, timestamp: 260, level: "B1+", title: "描述徒步难度",
+        analysis: "比较级 steeper than 和结果连接词 so 连在同一句中，需要同时跟上画面与因果关系。",
+        focus: "比较级 + so 表达困难与应对方式",
+        sourceText: "The first climb is steeper than it looks, so I need to pace myself.",
+      },
+      {
+        start: 382, end: 480, timestamp: 382, level: "B2", title: "从经历上升到观点",
+        analysis: "语义从具体旅行切换到抽象的自我信任与人生改变，句子更长、信息密度更高。",
+        focus: "forces you to… 与 the way you… 句型",
+        sourceText: "Traveling alone forces you to make decisions and trust yourself.",
+      },
+    ],
+    coverage: { cueCount: 10, characterCount: 612, start: 26, end: 480, complete: true },
+    discussionQuestions: {
+      source: [
+        "What are your thoughts on the speaker's plan to do the eight-hour hike alone?",
+        "Why does the speaker decide to pace himself on the first climb?",
+        "Which view or moment on the trail would you most like to experience?",
+        "Have you ever had to change your pace during a difficult hike or activity?",
+        "When can traveling alone help someone learn to trust themselves?",
+      ],
+      advanced: [
+        "What part of traveling alone seems most difficult to you?",
+        "Do you usually plan trips carefully, or decide things as you go?",
+        "What is one place that is especially good for a first solo trip?",
+        "Who is the most adventurous traveler you know?",
+        "If you took a solo trip this year, where would you go and what would you do first?",
+      ],
+    },
+    learningItems: [
+      { category: "pattern", expression: "going to", meaningZh: "将要；打算", why: "", timestamp: 26 },
+      { category: "grammar", expression: "have been told", meaningZh: "曾被告知", why: "", timestamp: 78 },
+      { category: "slang", expression: "hyped", meaningZh: "非常兴奋的", why: "年轻人口语中表达强烈期待", timestamp: 87 },
+      { category: "idiom", expression: "smash this", meaningZh: "漂亮地拿下这件事", why: "非正式口语中表达很有信心完成挑战", timestamp: 91 },
+      { category: "pattern", expression: "absolutely epic hike", meaningZh: "非常精彩的徒步旅行", why: "", timestamp: 91 },
+      { category: "word", expression: "wilderness explorer", meaningZh: "荒野探险家", why: "旅行与户外主题中的实用搭配", timestamp: 95 },
+      { category: "idiom", expression: "pace myself", meaningZh: "控制自己的节奏", why: "谈运动、工作量和精力分配时常用", timestamp: 260 },
+      { category: "pattern", expression: "worth every step", meaningZh: "每一步都值得", why: "", timestamp: 318 },
     ],
   });
 
@@ -66,10 +111,10 @@
     playToggle: document.querySelector("#play-toggle"),
     previousCue: document.querySelector("#previous-cue"),
     nextCue: document.querySelector("#next-cue"),
-    loopToggle: document.querySelector("#loop-toggle"),
     playerProgress: document.querySelector("#player-progress"),
     currentTime: document.querySelector("#current-time"),
     duration: document.querySelector("#duration"),
+    currentSentenceContainer: document.querySelector("#current-sentence"),
     currentSentence: document.querySelector("#current-sentence p"),
     cueRail: document.querySelector("#cue-rail"),
     tabs: [...document.querySelectorAll("[data-tab]")],
@@ -79,25 +124,39 @@
     analysisErrorMessage: document.querySelector("#analysis-error-message"),
     analysisContent: document.querySelector("#analysis-content"),
     retryAnalysis: document.querySelector("#retry-analysis"),
+    useLocalAnalysis: document.querySelector("#use-local-analysis"),
+    refreshAnalysis: document.querySelector("#refresh-analysis"),
+    analysisSource: document.querySelector("#analysis-source"),
     materialLevel: document.querySelector("#material-level"),
     analysisLearnerLevel: document.querySelector("#analysis-learner-level"),
-    fitVerdict: document.querySelector("#fit-verdict"),
-    startLabel: document.querySelector("#start-label"),
-    startLearning: document.querySelector("#start-learning"),
+    learningOutcomes: document.querySelector("#learning-outcomes"),
     vocabularyLevel: document.querySelector("#vocabulary-level"),
     speechLevel: document.querySelector("#speech-level"),
     syntaxLevel: document.querySelector("#syntax-level"),
     expressionList: document.querySelector("#expression-list"),
+    learningItemCount: document.querySelector("#learning-item-count"),
     difficultyTimeline: document.querySelector("#difficulty-timeline"),
+    timelineSegmentList: document.querySelector("#timeline-segment-list"),
     recommendedRange: document.querySelector("#recommended-range"),
     transcriptSearch: document.querySelector("#transcript-search"),
     autoFollow: document.querySelector("#auto-follow"),
     transcriptStatus: document.querySelector("#transcript-status"),
     transcriptList: document.querySelector("#transcript-list"),
-    discussionModes: [...document.querySelectorAll("[data-discussion-mode]")],
-    discussionMessages: document.querySelector("#discussion-messages"),
-    discussionEmpty: document.querySelector("#discussion-empty"),
+    discussionOutline: document.querySelector("#discussion-outline"),
+    sourceQuestionList: document.querySelector("#source-question-list"),
+    advancedQuestionList: document.querySelector("#advanced-question-list"),
+    discussionStartActions: document.querySelector("#discussion-start-actions"),
     startDiscussion: document.querySelector("#start-discussion"),
+    discussionSession: document.querySelector("#discussion-session"),
+    discussionPhaseLabel: document.querySelector("#discussion-phase-label"),
+    discussionProgressCurrent: document.querySelector("#discussion-progress-current"),
+    discussionProgressTotal: document.querySelector("#discussion-progress-total"),
+    discussionProgressTrack: document.querySelector(".discussion-progress-track"),
+    discussionProgressBar: document.querySelector("#discussion-progress-bar"),
+    discussionOutlineToggle: document.querySelector("#discussion-outline-toggle"),
+    discussionSessionOutline: document.querySelector("#discussion-session-outline"),
+    discussionSessionQuestionList: document.querySelector("#discussion-session-question-list"),
+    discussionMessages: document.querySelector("#discussion-messages"),
     discussionForm: document.querySelector("#discussion-form"),
     discussionInput: document.querySelector("#discussion-input"),
     requestHint: document.querySelector("#request-hint"),
@@ -111,9 +170,11 @@
     currentTime: 0,
     duration: 0,
     playing: false,
-    loopCue: false,
     activeCue: null,
-    discussionMode: "source",
+    discussionActive: false,
+    discussionPhase: "outline",
+    discussionQuestionIndex: 0,
+    discussionPlan: [],
     messages: [],
     previewTimer: 0,
     playbackTimer: 0,
@@ -239,13 +300,11 @@
 
   const syncCurrentCue = () => {
     const nextCue = Core.cueAt(state.cues, state.currentTime);
-    if (state.loopCue && state.activeCue && state.currentTime >= state.activeCue.end - 0.08) {
-      seekTo(state.activeCue.start, { play: true });
-      return;
-    }
     if (nextCue?.start === state.activeCue?.start) return;
     state.activeCue = nextCue;
-    elements.currentSentence.textContent = nextCue?.text || "当前时间点没有字幕。";
+    const nextText = String(nextCue?.text || "").trim();
+    elements.currentSentence.textContent = nextText;
+    elements.currentSentenceContainer.hidden = !nextText;
     syncCueSelection();
     if (state.activeTab === "transcript" && elements.autoFollow.checked) scrollToActiveTranscript();
     const railCard = [...elements.cueRail.children].find((item) => Number(item.dataset.start) === nextCue?.start);
@@ -256,36 +315,66 @@
     elements.analysisLoading.hidden = true;
     elements.analysisError.hidden = true;
     elements.analysisContent.hidden = false;
+    elements.analysisSource.hidden = !analysis.localFallback;
     elements.materialLevel.textContent = analysis.materialLevel;
     elements.analysisLearnerLevel.textContent = analysis.learnerLevel;
-    elements.fitVerdict.textContent = analysis.fitVerdict;
-    elements.startLabel.textContent = `开始 ${analysis.studyMinutes} 分钟学习`;
+    const renderTextList = (element, items) => element.replaceChildren(...items.map((text) => {
+      const item = document.createElement("li");
+      item.textContent = text;
+      return item;
+    }));
+    renderTextList(elements.learningOutcomes, analysis.learningOutcomes);
     elements.vocabularyLevel.textContent = analysis.vocabularyLevel;
     elements.speechLevel.textContent = analysis.speechLevel;
     elements.syntaxLevel.textContent = analysis.syntaxLevel;
-    elements.expressionList.replaceChildren(...analysis.expressions.map((item) => {
+    const categoryLabels = {
+      word: "单词",
+      grammar: "语法",
+      pattern: "句型",
+      idiom: "习语",
+      slang: "俚语",
+    };
+    elements.learningItemCount.textContent = `${analysis.learningItems.length} 项`;
+    elements.expressionList.replaceChildren(...analysis.learningItems.map((item) => {
       const button = document.createElement("button");
       button.className = "expression-row";
       button.type = "button";
-      const occurrenceText = item.occurrences > 1 ? `出现 ${item.occurrences} 次 · ` : "";
-      button.innerHTML = `<span class="expression-play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5Z"/></svg></span><span class="expression-copy"><strong>${PST.escapeHtml(item.expression)}</strong><span>${PST.escapeHtml(`${occurrenceText}${item.meaningZh}`)}</span></span><time>${Core.formatTimestamp(item.timestamp)}</time>`;
+      const meaning = String(item.meaningZh || "").trim();
+      const occurrenceLabel = item.occurrences > 1 ? `出现 ${item.occurrences} 次` : "";
+      const note = String(item.why || "").trim();
+      const details = meaning || occurrenceLabel
+        ? `<span class="expression-details">${meaning ? `<span class="expression-meaning">${PST.escapeHtml(meaning)}</span>` : ""}${occurrenceLabel ? `<span class="expression-occurrences">${PST.escapeHtml(occurrenceLabel)}</span>` : ""}</span>`
+        : "";
+      button.innerHTML = `<span class="expression-play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5Z"/></svg></span><span class="expression-copy"><span class="expression-heading"><em data-category="${item.category}">${categoryLabels[item.category]}</em><strong>${PST.escapeHtml(item.expression)}</strong></span>${details}${note ? `<small>${PST.escapeHtml(note)}</small>` : ""}</span><time>${Core.formatTimestamp(item.timestamp)}</time>`;
+      button.title = `跳转到 ${Core.formatTimestamp(item.timestamp)}：${item.sourceText}`;
       button.addEventListener("click", () => seekTo(item.timestamp));
       return button;
     }));
     const duration = Math.max(1, state.duration);
-    const ranges = [
-      ...analysis.difficultRanges.map((range) => ({ ...range, recommended: false })),
-      { ...analysis.recommendedRange, recommended: true },
-    ];
-    elements.difficultyTimeline.replaceChildren(...ranges.map((range) => {
-      const marker = document.createElement("span");
-      marker.className = `timeline-range${range.recommended ? " timeline-range--recommended" : ""}`;
-      marker.style.left = `${(range.start / duration) * 100}%`;
-      marker.style.width = `${Math.max(1.6, ((range.end - range.start) / duration) * 100)}%`;
-      marker.title = `${Core.formatTimestamp(range.start)}–${Core.formatTimestamp(range.end)}`;
+    const timelineSegments = analysis.timelineSegments.slice(0, 4);
+    elements.difficultyTimeline.replaceChildren(...timelineSegments.map((segment) => {
+      const marker = document.createElement("button");
+      marker.className = "timeline-range";
+      marker.type = "button";
+      marker.style.left = `${(segment.start / duration) * 100}%`;
+      marker.style.width = `${Math.max(1.6, ((segment.end - segment.start) / duration) * 100)}%`;
+      marker.title = `${Core.formatTimestamp(segment.start)}–${Core.formatTimestamp(segment.end)} · ${segment.title}`;
+      marker.setAttribute("aria-label", `跳转到 ${Core.formatTimestamp(segment.timestamp)}，${segment.title}`);
+      marker.addEventListener("click", () => seekTo(segment.timestamp));
       return marker;
     }));
-    elements.recommendedRange.textContent = `推荐精学 ${Core.formatTimestamp(analysis.recommendedRange.start)}–${Core.formatTimestamp(analysis.recommendedRange.end)}`;
+    elements.recommendedRange.textContent = `建议精学 ${Core.formatTimestamp(analysis.recommendedRange.start)}–${Core.formatTimestamp(analysis.recommendedRange.end)}`;
+    elements.recommendedRange.onclick = () => seekTo(analysis.recommendedRange.start);
+    elements.timelineSegmentList.replaceChildren(...timelineSegments.map((segment) => {
+      const button = document.createElement("button");
+      button.className = "timeline-segment-row";
+      button.type = "button";
+      const focus = String(segment.focus || "").trim();
+      button.innerHTML = `<time>${Core.formatTimestamp(segment.start)}–${Core.formatTimestamp(segment.end)}</time><span><strong>${PST.escapeHtml(segment.title)}</strong><em>${segment.level}</em>${focus ? `<small>${PST.escapeHtml(focus)}</small>` : ""}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5Z"/></svg>`;
+      button.addEventListener("click", () => seekTo(segment.timestamp));
+      return button;
+    }));
+    renderDiscussionOutline();
   };
 
   const applyLearningContext = (response) => {
@@ -297,39 +386,44 @@
     elements.author.textContent = response.video?.author || "YouTube";
     renderCueRail();
     renderTranscript();
+    renderDiscussionOutline();
     syncCurrentCue();
     updateProgressDisplay();
   };
 
   const waitForMoreLearningCues = async () => {
-    if (!embeddedMode || state.contextRetrying) return;
+    if (previewMode || state.contextRetrying) return;
     state.contextRetrying = true;
     for (let attempt = 0; attempt < 60; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const response = await sendMessage({ type: "GET_LEARNING_CONTEXT" });
       if (!response?.ok) continue;
       const nextCues = Core.normalizeCues(response.cues, Number(response.video?.duration) || Number.POSITIVE_INFINITY);
-      if (nextCues.length > state.cues.length) applyLearningContext(response);
-      if (nextCues.length >= 3) {
+      if (nextCues.length > state.cues.length || Boolean(response.completeTimeline) !== Boolean(state.context?.completeTimeline)) {
+        applyLearningContext(response);
+      }
+      if (response.completeTimeline && nextCues.length >= 3) {
         state.contextRetrying = false;
-        await loadAnalysis({ force: true });
+        await loadAnalysis({ force: true, allowPartial: false });
         return;
       }
     }
     state.contextRetrying = false;
+    if (state.cues.length >= 3) await loadAnalysis({ force: true, allowPartial: true });
   };
 
-  const analysisCacheKey = () => `learning-analysis:${state.context?.video?.id || "unknown"}:${Core.transcriptHash(state.cues)}:${elements.learnerLevel.value}`;
+  const analysisCacheKey = () => `learning-analysis:v4:${state.context?.video?.id || "unknown"}:${Core.transcriptHash(state.cues)}:${elements.learnerLevel.value}`;
 
   const getCachedAnalysis = async () => {
     if (!hasExtensionApi || !chrome.storage?.local) return null;
     const key = analysisCacheKey();
     const stored = await chrome.storage.local.get({ learningAnalysisCache: {} });
-    return stored.learningAnalysisCache?.[key] || null;
+    const cached = stored.learningAnalysisCache?.[key];
+    return Core.isCacheableAnalysis(cached) ? cached : null;
   };
 
   const cacheAnalysis = async (analysis) => {
-    if (!hasExtensionApi || !chrome.storage?.local) return;
+    if (!hasExtensionApi || !chrome.storage?.local || !Core.isCacheableAnalysis(analysis)) return;
     const key = analysisCacheKey();
     const stored = await chrome.storage.local.get({ learningAnalysisCache: {} });
     const entries = Object.entries(stored.learningAnalysisCache || {}).filter(([entryKey]) => entryKey !== key);
@@ -337,10 +431,48 @@
     await chrome.storage.local.set({ learningAnalysisCache });
   };
 
-  const loadAnalysis = async ({ force = false } = {}) => {
+  const saveAnalysisToHistory = async (analysis) => {
+    const History = PST.LearningHistoryCore;
+    if (!History || !hasExtensionApi || !chrome.storage?.local || !state.context?.video) return;
+    const stored = await chrome.storage.local.get({ [History.STORAGE_KEY]: [] });
+    const history = History.normalizeHistory(stored[History.STORAGE_KEY]);
+    const existing = History.findRecord(history, state.context.video);
+    if (!existing) return;
+    const record = History.buildRecord({
+      video: state.context.video,
+      currentTime: state.currentTime,
+      duration: state.duration,
+      analysis,
+      existing,
+      now: Date.now(),
+    });
+    await chrome.storage.local.set({ [History.STORAGE_KEY]: History.upsertHistory(history, record) });
+  };
+
+  const renderLocalAnalysis = () => {
+    state.analysis = Core.sanitizeAnalysis(Core.createFallbackAnalysis({
+      cues: state.cues,
+      duration: state.duration,
+      learnerLevel: elements.learnerLevel.value,
+      videoTitle: state.context?.video?.title,
+    }), {
+      cues: state.cues,
+      duration: state.duration,
+      learnerLevel: elements.learnerLevel.value,
+      videoTitle: state.context?.video?.title,
+    });
+    renderAnalysis(state.analysis);
+    saveAnalysisToHistory(state.analysis).catch(() => undefined);
+  };
+
+  const loadAnalysis = async ({ force = false, allowPartial = false } = {}) => {
     elements.analysisLoading.hidden = false;
     elements.analysisError.hidden = true;
     elements.analysisContent.hidden = true;
+    if (!previewMode && !state.context?.completeTimeline && !allowPartial) {
+      waitForMoreLearningCues();
+      return;
+    }
     try {
       if (state.cues.length < 3) throw new Error("字幕仍在准备，收集到足够内容后会自动分析");
       let raw = null;
@@ -352,6 +484,7 @@
           learnerLevel: elements.learnerLevel.value,
           video: state.context.video,
           cues: state.cues,
+          transcriptComplete: Boolean(state.context?.completeTimeline),
         });
         if (!response?.ok) throw new Error(response?.error || "材料分析暂时不可用");
         raw = response.analysis;
@@ -360,28 +493,17 @@
         cues: state.cues,
         duration: state.duration,
         learnerLevel: elements.learnerLevel.value,
+        videoTitle: state.context?.video?.title,
       });
       if (!previewMode) await cacheAnalysis(state.analysis);
       renderAnalysis(state.analysis);
+      saveAnalysisToHistory(state.analysis).catch(() => undefined);
     } catch (error) {
-      try {
-        state.analysis = Core.sanitizeAnalysis(Core.createFallbackAnalysis({
-          cues: state.cues,
-          duration: state.duration,
-          learnerLevel: elements.learnerLevel.value,
-        }), {
-          cues: state.cues,
-          duration: state.duration,
-          learnerLevel: elements.learnerLevel.value,
-        });
-        renderAnalysis(state.analysis);
-      } catch {
-        elements.analysisLoading.hidden = true;
-        elements.analysisContent.hidden = true;
-        elements.analysisError.hidden = false;
-        elements.analysisErrorMessage.textContent = error?.message || "材料分析暂时不可用，你仍然可以先从字幕开始。";
-        waitForMoreLearningCues();
-      }
+      elements.analysisLoading.hidden = true;
+      elements.analysisContent.hidden = true;
+      elements.analysisError.hidden = false;
+      elements.analysisErrorMessage.textContent = error?.message || "AI 没有返回完整结果，请重试或暂时使用本地简版。";
+      if (!state.context?.completeTimeline) waitForMoreLearningCues();
     }
   };
 
@@ -389,10 +511,13 @@
     const article = document.createElement("article");
     article.className = "message";
     article.dataset.role = role;
+    const roleLabel = document.createElement("span");
+    roleLabel.className = "message-role";
+    roleLabel.textContent = role === "user" ? "你" : "AI 老师";
     const body = document.createElement("div");
     body.className = "message-body";
     body.textContent = text;
-    article.append(body);
+    article.append(roleLabel, body);
     if (citation && Number.isFinite(Number(citation.timestamp))) {
       const citationButton = document.createElement("button");
       citationButton.className = "citation-button";
@@ -411,30 +536,125 @@
     elements.discussionMessages.scrollTop = elements.discussionMessages.scrollHeight;
   };
 
+  const getDiscussionPlan = () => {
+    const fallback = Core.createDiscussionQuestions(state.context?.video?.title, state.cues);
+    const questions = state.analysis?.discussionQuestions || fallback;
+    return [
+      ...(questions.source || fallback.source).map((text) => ({ type: "source", text })),
+      ...(questions.advanced || fallback.advanced).map((text) => ({ type: "advanced", text })),
+    ];
+  };
+
+  const renderQuestionList = (target, questions) => {
+    target.replaceChildren(...questions.map((question) => {
+      const item = document.createElement("li");
+      item.textContent = question;
+      return item;
+    }));
+  };
+
+  const updateDiscussionProgress = () => {
+    const total = state.discussionPlan.length;
+    const completed = state.discussionPhase === "question"
+      ? Math.min(state.discussionQuestionIndex, total)
+      : total;
+    const phaseLabel = state.discussionPhase === "casual"
+      ? "自由讨论"
+      : state.discussionPhase === "complete"
+        ? "课堂完成"
+        : `提纲问题 ${Math.min(state.discussionQuestionIndex + 1, total)}`;
+    elements.discussionPhaseLabel.textContent = phaseLabel;
+    elements.discussionProgressCurrent.textContent = String(completed);
+    elements.discussionProgressTotal.textContent = String(total);
+    elements.discussionProgressTrack.setAttribute("aria-valuemax", String(total));
+    elements.discussionProgressTrack.setAttribute("aria-valuenow", String(completed));
+    elements.discussionProgressBar.style.width = `${total ? (completed / total) * 100 : 0}%`;
+    [...elements.discussionSessionQuestionList.children].forEach((item, index) => {
+      const itemState = state.discussionPhase !== "question" || index < state.discussionQuestionIndex
+        ? "complete"
+        : index === state.discussionQuestionIndex
+          ? "current"
+          : "pending";
+      item.dataset.state = itemState;
+    });
+  };
+
+  const renderDiscussionOutline = () => {
+    const fallback = Core.createDiscussionQuestions(state.context?.video?.title, state.cues);
+    const questions = state.analysis?.discussionQuestions || fallback;
+    state.discussionPlan = getDiscussionPlan();
+    renderQuestionList(elements.sourceQuestionList, questions.source || fallback.source);
+    renderQuestionList(elements.advancedQuestionList, questions.advanced || fallback.advanced);
+    elements.discussionSessionQuestionList.replaceChildren(...state.discussionPlan.map((question, index) => {
+      const item = document.createElement("li");
+      item.textContent = `${index + 1}. ${question.text}`;
+      return item;
+    }));
+    updateDiscussionProgress();
+  };
+
+  const resetDiscussionSession = () => {
+    state.discussionActive = false;
+    state.discussionPhase = "outline";
+    state.discussionQuestionIndex = 0;
+    state.messages = [];
+    elements.discussionMessages.replaceChildren();
+    elements.discussionOutline.hidden = false;
+    elements.discussionStartActions.hidden = false;
+    elements.discussionSession.hidden = true;
+    elements.discussionForm.hidden = true;
+    elements.discussionSessionOutline.hidden = true;
+    elements.discussionOutlineToggle.setAttribute("aria-expanded", "false");
+    renderDiscussionOutline();
+  };
+
+  const startDiscussion = async () => {
+    if (!state.analysis) await loadAnalysis();
+    state.discussionPlan = getDiscussionPlan();
+    if (!state.discussionPlan.length) return;
+    state.discussionActive = true;
+    state.discussionPhase = "question";
+    state.discussionQuestionIndex = 0;
+    state.messages = [];
+    elements.discussionMessages.replaceChildren();
+    elements.discussionOutline.hidden = true;
+    elements.discussionStartActions.hidden = true;
+    elements.discussionSession.hidden = false;
+    elements.discussionForm.hidden = false;
+    const opening = `你好，我是你的 AI 英语老师。我们会按提纲逐题讨论，我会适时纠正和追问。\n\n${state.discussionPlan[0].text}`;
+    state.messages.push({ role: "assistant", content: opening });
+    appendMessage({ role: "assistant", text: opening });
+    updateDiscussionProgress();
+    elements.progress.textContent = "2";
+    elements.discussionInput.focus();
+  };
+
   const previewDiscussion = ({ hint = false } = {}) => {
     const expression = state.analysis?.expressions?.[0]?.expression || "go on a hike";
     if (hint) return {
       reply: `提示：先说你认同还是不认同，再解释原因。可以使用 “${expression}”。`,
       citation: { timestamp: 91, text: "I'm going to smash this and we're going to go on this absolutely epic hike." },
     };
-    if (!state.messages.length) return state.discussionMode === "source" ? {
-      reply: "In your own words, why does the speaker believe this trip could change his life?",
-      citation: { timestamp: 472, text: "That is why solo travel can change the way you see your own life." },
-    } : {
-      reply: `Imagine a friend is nervous about traveling alone. What would you tell them? Try using “${expression}”.`,
-      citation: { timestamp: 91, text: "I'm going to smash this and we're going to go on this absolutely epic hike." },
+    if (state.discussionPhase === "casual") return {
+      reply: "课堂总结\n\n你能清楚表达观点，也会用原因支撑答案。接下来注意用 build confidence，而不是 make confidence；描述经历时也可以多用具体例子。整体表达自然、有逻辑，今天的讨论完成了。",
+      citation: { timestamp: 382, text: "Traveling alone forces you to make decisions and trust yourself." },
+      feedback: "建议复习：build confidence · trust yourself · roughly",
     };
     return {
-      reply: "You connected challenge with confidence clearly. What is one risk of solo travel, and how could someone prepare for it?",
+      reply: "Good answer. You connected the idea to your own experience clearly.",
       citation: { timestamp: 382, text: "Traveling alone forces you to make decisions and trust yourself." },
       feedback: "表达升级：可以用 “build confidence” 代替 “make confidence”。",
     };
   };
 
   const requestDiscussion = async ({ hint = false } = {}) => {
+    const currentQuestion = state.discussionPlan[state.discussionQuestionIndex];
     const response = previewMode ? { ok: true, discussion: previewDiscussion({ hint }) } : await sendMessage({
       type: "DISCUSS_LEARNING_MATERIAL",
-      mode: state.discussionMode,
+      mode: currentQuestion?.type || "advanced",
+      phase: state.discussionPhase,
+      questionIndex: state.discussionQuestionIndex,
+      questionPlan: state.discussionPlan,
       hint,
       learnerLevel: elements.learnerLevel.value,
       video: state.context.video,
@@ -451,25 +671,35 @@
     elements.requestHint.disabled = true;
     try {
       const result = await requestDiscussion({ hint });
-      const text = [result.reply, result.question].filter(Boolean).join("\n\n");
+      let text = result.reply || result.question || "";
+      if (!hint && state.discussionPhase === "question") {
+        const nextIndex = state.discussionQuestionIndex + 1;
+        if (nextIndex < state.discussionPlan.length) {
+          state.discussionQuestionIndex = nextIndex;
+          text = [text, state.discussionPlan[nextIndex].text].filter(Boolean).join("\n\n");
+        } else {
+          state.discussionPhase = "casual";
+          text = [
+            text,
+            "Before we wrap up, is there anything else from this video—or from your own experience—that you'd like to talk about?",
+          ].filter(Boolean).join("\n\n");
+        }
+      } else if (!hint && state.discussionPhase === "casual") {
+        state.discussionPhase = "complete";
+        elements.discussionForm.hidden = true;
+        elements.progress.textContent = "3";
+      }
       state.messages.push({ role: "assistant", content: text });
-      state.messages = state.messages.slice(-8);
+      state.messages = state.messages.slice(-24);
       appendMessage({ role: "assistant", text, citation: result.citation, feedback: result.feedback });
+      updateDiscussionProgress();
     } catch (error) {
       appendMessage({ role: "assistant", text: error?.message || "AI 讨论暂时不可用，请稍后再试。" });
     } finally {
       elements.discussionInput.disabled = false;
       elements.requestHint.disabled = false;
-      elements.discussionInput.focus();
+      if (state.discussionPhase !== "complete") elements.discussionInput.focus();
     }
-  };
-
-  const startDiscussion = async () => {
-    if (!state.analysis) await loadAnalysis();
-    elements.discussionEmpty.hidden = true;
-    elements.discussionForm.hidden = false;
-    elements.progress.textContent = "2";
-    await runDiscussion();
   };
 
   const configurePlayer = () => {
@@ -544,45 +774,31 @@
     const next = state.cues.find((cue) => cue.start > state.currentTime + 0.35);
     if (next) seekTo(next.start);
   });
-  elements.loopToggle.addEventListener("click", () => {
-    state.loopCue = !state.loopCue;
-    elements.loopToggle.setAttribute("aria-pressed", String(state.loopCue));
-  });
   elements.transcriptSearch.addEventListener("input", renderTranscript);
   elements.retryAnalysis.addEventListener("click", () => loadAnalysis({ force: true }));
-  elements.startLearning.addEventListener("click", () => {
-    elements.progress.textContent = "1";
-    switchTab("transcript");
-    seekTo(state.analysis.recommendedRange.start);
-  });
+  elements.useLocalAnalysis.addEventListener("click", renderLocalAnalysis);
+  elements.refreshAnalysis.addEventListener("click", () => loadAnalysis({ force: true }));
   elements.learnerLevel.addEventListener("change", async () => {
     if (hasExtensionApi && chrome.storage?.sync) await chrome.storage.sync.set({ learnerLevel: elements.learnerLevel.value });
     state.analysis = null;
-    state.messages = [];
-    elements.discussionMessages.replaceChildren();
-    elements.discussionEmpty.hidden = false;
-    elements.discussionForm.hidden = true;
+    resetDiscussionSession();
     await loadAnalysis();
   });
-  elements.discussionModes.forEach((button) => button.addEventListener("click", () => {
-    state.discussionMode = button.dataset.discussionMode;
-    elements.discussionModes.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
-    state.messages = [];
-    elements.discussionMessages.replaceChildren();
-    elements.discussionEmpty.hidden = false;
-    elements.discussionForm.hidden = true;
-  }));
   elements.startDiscussion.addEventListener("click", startDiscussion);
+  elements.discussionOutlineToggle.addEventListener("click", () => {
+    const expanded = elements.discussionOutlineToggle.getAttribute("aria-expanded") !== "true";
+    elements.discussionOutlineToggle.setAttribute("aria-expanded", String(expanded));
+    elements.discussionSessionOutline.hidden = !expanded;
+  });
   elements.requestHint.addEventListener("click", () => runDiscussion({ hint: true }));
   elements.discussionForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const content = elements.discussionInput.value.trim();
     if (!content) return;
     state.messages.push({ role: "user", content });
-    state.messages = state.messages.slice(-8);
+    state.messages = state.messages.slice(-24);
     appendMessage({ role: "user", text: content });
     elements.discussionInput.value = "";
-    elements.progress.textContent = "3";
     await runDiscussion();
   });
 

@@ -7,6 +7,7 @@
     pronoun: "pron.", preposition: "prep.", conjunction: "conj.",
     interjection: "int.", word: "word",
   });
+  const HOVER_LOOKUP_DELAY_MS = 300;
 
   const STYLES = `
     :host {
@@ -228,6 +229,7 @@
     .tooltip[data-open="true"] { opacity: 1; pointer-events: auto; transform: translateY(0); }
     .tooltip__word { margin: 0; font-size: 23px; font-weight: 720; line-height: 1.15; }
     .tooltip__phonetic { margin: 5px 0 0; color: var(--pst-muted); font-size: 14px; line-height: 1.4; }
+    .tooltip__phrase { margin: 8px 0 0; color: #8fb7eb; font-size: 12px; line-height: 1.4; }
     .tooltip__meaning { margin: 12px 0 0; font-size: 15px; line-height: 1.48; }
     .tooltip__lemma {
       margin: 11px 0 0;
@@ -364,6 +366,8 @@
       this.statusNode = this.shadow.querySelector(".status");
       this.statusText = this.shadow.querySelector(".status__text");
       this.hideTooltipTimer = 0;
+      this.lookupDelayTimer = 0;
+      this.pendingLookupNode = null;
       this.lookupToken = 0;
       this.englishRenderKey = "";
       this.currentWordEntry = null;
@@ -644,6 +648,7 @@
       const hasCue = Boolean(english || chinese);
       const renderKey = `${english}\u0000${Boolean(this.settings.hoverDictionary)}`;
       if (renderKey !== this.englishRenderKey) {
+        this.cancelScheduledLookup();
         this.englishRenderKey = renderKey;
         this.renderEnglish(english);
       }
@@ -720,9 +725,15 @@
         word.tabIndex = this.settings.hoverDictionary ? 0 : -1;
         word.dataset.word = match[0];
         if (this.settings.hoverDictionary) {
-          word.addEventListener("mouseenter", () => this.lookupWord(word));
-          word.addEventListener("focus", () => this.lookupWord(word));
-          word.addEventListener("mouseleave", () => this.scheduleHideTooltip());
+          word.addEventListener("mouseenter", () => this.scheduleLookupWord(word));
+          word.addEventListener("focus", () => {
+            this.cancelScheduledLookup();
+            this.lookupWord(word);
+          });
+          word.addEventListener("mouseleave", () => {
+            this.cancelScheduledLookup(word);
+            this.scheduleHideTooltip();
+          });
           word.addEventListener("blur", () => this.scheduleHideTooltip());
         }
         this.english.append(word);
@@ -776,10 +787,29 @@
       return characters.length > 10 ? `${characters.slice(0, 10).join("")}…` : firstMeaning;
     }
 
-    async lookupWord(wordNode) {
+    scheduleLookupWord(wordNode) {
+      clearTimeout(this.lookupDelayTimer);
+      const token = ++this.lookupToken;
+      this.pendingLookupNode = wordNode;
+      this.lookupDelayTimer = setTimeout(() => {
+        if (token !== this.lookupToken || this.pendingLookupNode !== wordNode) return;
+        this.lookupDelayTimer = 0;
+        this.pendingLookupNode = null;
+        this.lookupWord(wordNode, token);
+      }, HOVER_LOOKUP_DELAY_MS);
+    }
+
+    cancelScheduledLookup(wordNode = null) {
+      if (wordNode && this.pendingLookupNode !== wordNode) return;
+      clearTimeout(this.lookupDelayTimer);
+      this.lookupDelayTimer = 0;
+      this.pendingLookupNode = null;
+      this.lookupToken += 1;
+    }
+
+    async lookupWord(wordNode, token = ++this.lookupToken) {
       if (!this.settings.hoverDictionary) return;
       clearTimeout(this.hideTooltipTimer);
-      const token = ++this.lookupToken;
       const original = wordNode.dataset.word;
       this.currentWordEntry = null;
       this.tooltip.innerHTML = `
@@ -796,9 +826,13 @@
       if (token !== this.lookupToken || !entry) return;
       this.currentWordEntry = entry;
       const pos = POS_LABELS[entry.partOfSpeech] || entry.partOfSpeech || "word";
+      const phrase = entry.phrase && entry.phrase.toLowerCase() !== original.toLowerCase()
+        ? `<p class="tooltip__phrase">${PST.escapeHtml(t("contextPhrase", entry.phrase))}</p>`
+        : "";
       this.tooltip.innerHTML = `
-        <p class="tooltip__word">${PST.escapeHtml(entry.phrase || entry.lemma)}</p>
+        <p class="tooltip__word">${PST.escapeHtml(original)}</p>
         <p class="tooltip__phonetic">${PST.escapeHtml(entry.phonetic || t("noPhonetic"))}</p>
+        ${phrase}
         <p class="tooltip__meaning">${PST.escapeHtml(pos)} ${PST.escapeHtml(entry.gloss || entry.lemma)}</p>
         <p class="tooltip__lemma">${PST.escapeHtml(t("baseForm", entry.lemma))}${entry.original !== entry.lemma ? ` · ${PST.escapeHtml(t("currentForm", entry.original))}` : ""}</p>
         ${entry.definition ? `<p class="tooltip__definition">${PST.escapeHtml(entry.definition)}</p>` : ""}

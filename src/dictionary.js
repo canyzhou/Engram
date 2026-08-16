@@ -202,6 +202,7 @@
     constructor(translator) {
       this.translator = translator;
       this.cache = new Map();
+      this.inFlight = new Map();
     }
 
     async lookup(word, settings, options = {}) {
@@ -215,22 +216,45 @@
         lookupContext.context.join("\n"),
       ].join("\u0000");
       if (this.cache.has(key)) return this.cache.get(key);
+      if (this.inFlight.has(key)) return this.inFlight.get(key);
 
+      const request = this.lookupUncached(normalized, settings, lookupContext, key);
+      this.inFlight.set(key, request);
+      try {
+        return await request;
+      } finally {
+        if (this.inFlight.get(key) === request) this.inFlight.delete(key);
+      }
+    }
+
+    async lookupUncached(normalized, settings, lookupContext, key) {
       const candidates = lemmaCandidates(normalized);
-      const [dictionaryResponse, contextualResponse] = await Promise.all([
-        PST.safeSendMessage({
-          type: "DICTIONARY_LOOKUP",
-          candidates,
-        }),
-        lookupContext.sentence
-          ? PST.safeSendMessage({
-            type: "CONTEXTUAL_WORD_LOOKUP",
-            word: normalized,
-            sentence: lookupContext.sentence,
-            context: lookupContext.context,
-          })
-          : Promise.resolve(null),
-      ]);
+      let dictionaryResponse = null;
+      let dictionarySettled = false;
+      const dictionaryPromise = PST.safeSendMessage({
+        type: "DICTIONARY_LOOKUP",
+        candidates,
+      }).then((response) => {
+        dictionaryResponse = response;
+        dictionarySettled = true;
+        return response;
+      }, () => {
+        dictionarySettled = true;
+        return null;
+      });
+      const contextualResponse = lookupContext.sentence
+        ? await PST.safeSendMessage({
+          type: "CONTEXTUAL_WORD_LOOKUP",
+          word: normalized,
+          sentence: lookupContext.sentence,
+          context: lookupContext.context,
+        })
+        : null;
+      // A contextual result already contains the selected meaning and definition.
+      // Do not hold the card open on a slower third-party phonetic lookup.
+      if (!contextualResponse?.ok && !dictionarySettled) {
+        dictionaryResponse = await dictionaryPromise;
+      }
       const entry = dictionaryResponse?.ok ? dictionaryResponse.entry : null;
       const contextual = contextualResponse?.ok ? contextualResponse.entry : null;
       const lemma = String(contextual?.lemma || entry?.word || candidates.at(-1) || normalized)
@@ -263,7 +287,20 @@
       // Contextual results are stable for this exact subtitle. A fallback gloss
       // is deliberately not cached so a temporarily unavailable backend can be
       // retried on the next hover.
-      if (contextual && gloss) this.cache.set(key, result);
+      if (contextual && gloss) {
+        this.cache.set(key, result);
+        if (!dictionarySettled) {
+          dictionaryPromise.then((response) => {
+            const dictionaryEntry = response?.ok ? response.entry : null;
+            if (!dictionaryEntry || this.cache.get(key) !== result) return;
+            this.cache.set(key, {
+              ...result,
+              phonetic: dictionaryEntry.phonetic || result.phonetic,
+              definition: result.definition || dictionaryEntry.definitions?.[0]?.definition || "",
+            });
+          });
+        }
+      }
       return result;
     }
 

@@ -14,6 +14,8 @@ test("builds a publishable extension without backend or env files", (context) =>
 
   assert.equal(existsSync(join(outputDirectory, "manifest.json")), true);
   assert.equal(existsSync(join(outputDirectory, "src", "service-worker.js")), true);
+  assert.equal(existsSync(join(outputDirectory, "dashboard.html")), true);
+  assert.equal(existsSync(join(outputDirectory, "src", "learning-history-core.js")), true);
   assert.equal(existsSync(join(outputDirectory, "server")), false);
   assert.equal(existsSync(join(outputDirectory, ".env.local")), false);
   assert.equal(existsSync(join(outputDirectory, "preview.html")), false);

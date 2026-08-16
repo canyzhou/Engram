@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>学习档案 · Engram</title>
+    <link rel="stylesheet" href="dashboard.css?v=0.6.4-wordbook-2">
+  </head>
+  <body data-wordbook-force-language="zh-CN">
+    <div class="dashboard-shell">
+      <aside class="sidebar" aria-label="Engram 导航">
+        <button class="brand brand-button" type="button" data-view-target="history" aria-label="Engram 学习档案首页">
+          <img src="assets/icons/icon-32.png" width="30" height="30" alt="">
+          <strong>Engram</strong>
+        </button>
+        <nav class="primary-nav" aria-label="主要导航">
+          <button class="nav-link" type="button" data-view-target="history" aria-current="page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v13H5z"/><path d="M8 4.5h8v4H8zM9 12h6M9 15.5h4"/></svg>
+            <span>学习档案</span>
+          </button>
+          <button class="nav-link" type="button" data-view-target="vocabulary">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h9a3 3 0 0 1 3 3v13H9a3 3 0 0 1-3-3V4Z"/><path d="M6 16h9M10 8h4"/></svg>
+            <span>生词本</span>
+          </button>
+        </nav>
+        <a class="nav-link settings-link" href="learning-settings.html">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.8 7.8 0 0 0 .05-3l1.75-1.34-2-3.46-2.18.9a8 8 0 0 0-2.58-1.5L14.1 2.8h-4l-.34 2.3a8 8 0 0 0-2.58 1.5L5 5.7 3 9.16l1.75 1.34a7.8 7.8 0 0 0 .05 3L3 14.84l2 3.46 2.24-.92a8 8 0 0 0 2.52 1.45l.34 2.37h4l.34-2.37a8 8 0 0 0 2.52-1.45l2.24.92 2-3.46-1.8-1.34Z"/></svg>
+          <span>设置</span>
+        </a>
+      </aside>
+
+      <main class="dashboard-main">
+        <section class="page-view" data-page-view="history">
+          <header class="page-header">
+            <div>
+              <h1>学习档案</h1>
+              <p>管理你的学习记录，继续未完成的视频，随时回来复习。</p>
+            </div>
+            <button class="mobile-nav-button" data-mobile-nav-button type="button" aria-label="打开导航" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+            </button>
+          </header>
+
+          <section class="stats-strip" aria-label="学习概览">
+            <article>
+              <span class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14v12H5zM8 4h8v5H8z"/></svg></span>
+              <p>已归档<strong id="stat-archived">0</strong></p>
+            </article>
+            <article>
+              <span class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="m10 8 6 4-6 4Z"/></svg></span>
+              <p>学习中<strong id="stat-progress">0</strong></p>
+            </article>
+            <article>
+              <span class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="m8.5 12 2.3 2.3 4.8-5"/></svg></span>
+              <p>已完成<strong id="stat-complete">0</strong></p>
+            </article>
+            <article>
+              <span class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></span>
+              <p>本周学习<strong><span id="stat-minutes">0</span> <small>分钟</small></strong></p>
+            </article>
+          </section>
+
+          <section class="continue-section" id="continue-section" aria-labelledby="continue-title" hidden>
+            <h2 id="continue-title">继续学习</h2>
+            <article class="continue-row">
+              <div class="continue-thumb media-thumb">
+                <img id="continue-thumbnail" src="assets/learning-mode-poster.png" alt="">
+                <span class="thumbnail-fallback" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9 7 8 5-8 5Z"/></svg></span>
+              </div>
+              <div class="continue-copy">
+                <h3 id="continue-video-title"></h3>
+                <p id="continue-author"></p>
+                <div class="continue-progress">
+                  <strong id="continue-percent">0%</strong>
+                  <span class="progress-track"><i id="continue-progress-bar"></i></span>
+                </div>
+              </div>
+              <p class="last-studied" id="continue-last-studied"></p>
+              <button class="continue-button" id="continue-button" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5Z"/></svg>
+                继续学习
+              </button>
+            </article>
+          </section>
+
+          <section class="history-section" aria-labelledby="history-title">
+            <div class="history-heading">
+              <h2 id="history-title">观看记录</h2>
+              <div class="history-tools">
+                <label class="search-field">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+                  <span class="sr-only">搜索视频标题或作者</span>
+                  <input id="history-search" type="search" placeholder="搜索视频标题或作者" autocomplete="off">
+                </label>
+                <div class="filter-tabs" role="tablist" aria-label="筛选观看记录">
+                  <button type="button" role="tab" aria-selected="true" data-filter="all">全部</button>
+                  <button type="button" role="tab" aria-selected="false" data-filter="progress">学习中</button>
+                  <button type="button" role="tab" aria-selected="false" data-filter="complete">已完成</button>
+                  <button type="button" role="tab" aria-selected="false" data-filter="starred">已星标</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="history-table" id="history-table" role="table" aria-label="已归档视频">
+              <div class="history-table-head" role="row">
+                <span role="columnheader">视频</span>
+                <span role="columnheader">上次学习</span>
+                <span role="columnheader">学习项</span>
+                <span role="columnheader">进度</span>
+                <span role="columnheader">操作</span>
+              </div>
+              <div id="history-list" role="rowgroup"></div>
+            </div>
+
+            <div class="empty-state" id="history-empty-state" hidden>
+              <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14v12H5zM8 4h8v5H8z"/><path d="M9 13h6M9 16h4"/></svg></span>
+              <h3 id="history-empty-title">还没有学习记录</h3>
+              <p id="history-empty-copy">观看视频达到 10% 后，会自动出现在这里；也可以在学习页点击星标留档。</p>
+            </div>
+
+            <p class="archive-note">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 11v5M12 8h.01"/></svg>
+              观看进度达到 10% 时，视频将自动归档到学习档案中，方便你随时回顾。
+            </p>
+          </section>
+        </section>
+
+        <section class="page-view wordbook-view" data-page-view="vocabulary" hidden>
+          <header class="page-header wordbook-header">
+            <div>
+              <h1 data-i18n="myWordBank">生词本</h1>
+              <p data-i18n="wordBankIntro">把真实内容里遇见的生词留在这里，连同当时的语境一起复习。</p>
+            </div>
+            <div class="page-header-actions">
+              <button class="secondary-button" id="export-csv" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+                <span data-i18n="exportCsv">导出 CSV</span>
+              </button>
+              <button class="danger-button" id="clear-all" type="button" aria-label="清空生词本" data-i18n="clearWordBank" data-i18n-aria-label="clearWordBank">清空生词本</button>
+              <button class="mobile-nav-button" data-mobile-nav-button type="button" aria-label="打开导航" aria-expanded="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+              </button>
+            </div>
+          </header>
+
+          <section class="stats-strip wordbook-stats" aria-label="生词本概览" data-i18n-aria-label="wordBankStats">
+            <article>
+              <span class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h9a3 3 0 0 1 3 3v13H9a3 3 0 0 1-3-3V4Z"/><path d="M6 16h9"/></svg></span>
+              <p><span data-i18n="totalWords">总词数</span><strong id="total-count">0</strong></p>
+            </article>
+            <article>
+              <span class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="8"/></svg></span>
+              <p><span data-i18n="addedThisWeek">本周新增</span><strong id="week-count">0</strong></p>
+            </article>
+            <article>
+              <span class="stat-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h10v14H7zM10 9h4M10 13h4"/></svg></span>
+              <p><span data-i18n="mostRecent">最近添加</span><strong class="stats-recent" id="recent-word">—</strong></p>
+            </article>
+          </section>
+
+          <section class="wordbook-library" aria-labelledby="library-title">
+            <div class="wordbook-toolbar">
+              <div>
+                <h2 id="library-title" data-i18n="savedWords">收藏的单词</h2>
+                <p id="result-summary">0 个单词</p>
+              </div>
+              <div class="wordbook-filters">
+                <label class="search-field wordbook-search" for="search-input">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+                  <input id="search-input" type="search" autocomplete="off" placeholder="搜索单词、释义或字幕原句" data-i18n-placeholder="searchWords">
+                  <button id="clear-search" type="button" aria-label="清空搜索" data-i18n-aria-label="clearSearch" hidden>×</button>
+                </label>
+                <label class="sort-field" for="sort-order">
+                  <span data-i18n="sort">排序</span>
+                  <select id="sort-order">
+                    <option value="recent" data-i18n="recentlyAdded">最近添加</option>
+                    <option value="alphabetical">A–Z</option>
+                    <option value="oldest" data-i18n="oldestFirst">最早添加</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="word-table-head" aria-hidden="true">
+              <span>单词</span>
+              <span>释义与语境</span>
+              <span>操作</span>
+            </div>
+            <div class="word-list" id="word-list"></div>
+
+            <div class="empty-state wordbook-empty" id="empty-state" hidden>
+              <span class="empty-word-icon" aria-hidden="true">Aa</span>
+              <h3 id="empty-title" data-i18n="noSavedWords">还没有收藏单词</h3>
+              <p id="empty-copy" data-i18n="emptyWordBank">在支持的视频字幕上悬停，遇到生词时把它加入这里。</p>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="wordbook-dialog" id="clear-dialog" aria-labelledby="dialog-title">
+      <form method="dialog">
+        <div class="dialog-icon" aria-hidden="true">!</div>
+        <h2 id="dialog-title" data-i18n="clearEntireWordBank">清空整个生词本？</h2>
+        <p data-i18n="clearWarning">所有收藏的单词和字幕语境都会被删除。</p>
+        <div class="dialog-actions">
+          <button class="secondary-button" value="cancel" data-i18n="cancel">取消</button>
+          <button class="danger-filled-button" id="confirm-clear" value="confirm" data-i18n="confirmClear">全部清空</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="dashboard-toast" id="dashboard-toast" role="status" aria-live="polite" hidden></div>
+    <div class="wordbook-toast" id="toast" role="status" aria-live="polite">
+      <span id="toast-message"></span>
+      <button id="toast-action" type="button" hidden data-i18n="undo">撤销</button>
+    </div>
+    <script src="src/namespace.js"></script>
+    <script src="src/i18n.js?v=0.6.4-wordbook"></script>
+    <script src="src/learning-history-core.js"></script>
+    <script src="dashboard.js?v=0.6.4-wordbook-2"></script>
+    <script src="vocabulary.js?v=0.6.4-wordbook"></script>
+  </body>
+</html>

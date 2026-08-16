@@ -64,9 +64,12 @@
   const t = (key, substitutions) => PST.t(key, substitutions);
 
   const readUiLanguage = async () => {
-    if (hasSyncStorage) return (await chrome.storage.sync.get({ uiLanguage: "en" })).uiLanguage;
-    try { return JSON.parse(localStorage.getItem("pst-preview-settings") || "{}").uiLanguage || "en"; }
-    catch { return "en"; }
+    const forced = document.body.dataset.wordbookForceLanguage;
+    if (forced) return forced;
+    const fallback = "en";
+    if (hasSyncStorage) return (await chrome.storage.sync.get({ uiLanguage: fallback })).uiLanguage;
+    try { return JSON.parse(localStorage.getItem("pst-preview-settings") || "{}").uiLanguage || fallback; }
+    catch { return fallback; }
   };
 
   const readWords = async () => {

@@ -23,6 +23,31 @@ test("recognizes YouTube and Paramount+ as supported video sites", () => {
   assert.equal(detect("example.com").id, "unknown");
 });
 
+test("removes only explicit bracketed music cues from learning subtitles", () => {
+  const normalize = context.ParamountSubtitles.normalizeSubtitle;
+
+  assert.equal(
+    normalize("and I'm going to break down [music] how I film cinematic videos"),
+    "and I'm going to break down how I film cinematic videos",
+  );
+  assert.equal(normalize("[ MUSIC ] Welcome back"), "Welcome back");
+  assert.equal(normalize("Music is an important part of the film."), "Music is an important part of the film.");
+  assert.equal(normalize("I am studying [music theory] this semester."), "I am studying [music theory] this semester.");
+  assert.equal(normalize("[Jordan] I write music for films."), "[Jordan] I write music for films.");
+});
+
+test("removes repeated speaker-change chevrons from learning subtitles", () => {
+  const normalize = context.ParamountSubtitles.normalizeSubtitle;
+
+  assert.equal(
+    normalize("I'm going to drive out into the mountains,>> >>arrive at a beautiful mountain lake."),
+    "I'm going to drive out into the mountains, arrive at a beautiful mountain lake.",
+  );
+  assert.equal(normalize(">> Jordan: Welcome back."), "Jordan: Welcome back.");
+  assert.equal(normalize("&gt;&gt; Jordan: Welcome back."), "Jordan: Welcome back.");
+  assert.equal(normalize("This value is > the previous value."), "This value is > the previous value.");
+});
+
 test("injects the page bridge into YouTube's main world at document start", () => {
   const bridgeEntry = manifest.content_scripts.find((entry) => entry.js.includes("src/page-bridge.js"));
 

@@ -3,8 +3,13 @@ html.pst-learning-mode body {
   width: 100% !important;
   height: 100% !important;
   margin: 0 !important;
+  box-sizing: border-box !important;
   overflow: hidden !important;
   background: #0b0c0e !important;
+}
+
+html.pst-learning-mode {
+  --engram-learning-panel-width: max(36vw, 390px);
 }
 
 html.pst-learning-mode ytd-masthead,
@@ -20,41 +25,45 @@ html.pst-learning-mode ytd-watch-flexy #cinematics {
   display: none !important;
 }
 
-html.pst-learning-mode [data-engram-player-host] {
-  position: fixed !important;
-  z-index: 2147483000 !important;
-  top: 88px !important;
-  right: calc(36vw + 18px) !important;
-  bottom: 174px !important;
-  left: 18px !important;
-  width: auto !important;
+/*
+ * Keep YouTube's player in its native document flow. Chrome composites the
+ * video into a separate GPU layer; moving or resizing the player/video nodes
+ * after playback starts can leave audio running while that layer goes black.
+ * We therefore resize only YouTube's page-level layout around the player.
+ */
+html.pst-learning-mode ytd-page-manager,
+html.pst-learning-mode ytd-watch-flexy {
+  width: 100% !important;
   min-width: 0 !important;
   max-width: none !important;
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  border: 1px solid #303136 !important;
-  border-radius: 11px !important;
-  background: #090a0c !important;
-  transform: none !important;
 }
 
-html.pst-learning-mode [data-engram-player-host] #player-container-outer,
-html.pst-learning-mode [data-engram-player-host] #player-container-inner,
-html.pst-learning-mode [data-engram-player-host] #movie_player,
-html.pst-learning-mode [data-engram-player-host] video {
+html.pst-learning-mode ytd-app {
+  width: calc(100vw - var(--engram-learning-panel-width)) !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+html.pst-learning-mode ytd-page-manager {
+  margin-top: 0 !important;
+}
+
+html.pst-learning-mode ytd-watch-flexy #columns {
+  display: block !important;
   width: 100% !important;
   max-width: none !important;
-  height: 100% !important;
-  max-height: none !important;
+  margin: 0 !important;
+  padding: 88px 18px 212px !important;
+  box-sizing: border-box !important;
 }
 
-html.pst-learning-mode [data-engram-player-host] #movie_player {
-  position: absolute !important;
-  inset: 0 !important;
+html.pst-learning-mode ytd-watch-flexy #primary,
+html.pst-learning-mode ytd-watch-flexy #primary-inner {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 html.pst-learning-mode #pst-learning-panel {
@@ -63,27 +72,38 @@ html.pst-learning-mode #pst-learning-panel {
   top: 72px !important;
   right: 0 !important;
   bottom: 0 !important;
-  width: 36vw !important;
-  min-width: 390px !important;
+  width: var(--engram-learning-panel-width) !important;
+  min-width: 0 !important;
   height: calc(100vh - 72px) !important;
   border: 0 !important;
   border-left: 1px solid #242529 !important;
   background: #0e0f11 !important;
 }
 
+html.pst-learning-mode.pst-learning-panel-collapsed #pst-learning-panel {
+  visibility: hidden !important;
+  border-left: 0 !important;
+  pointer-events: none !important;
+}
+
+html.pst-learning-mode.pst-learning-panel-resizing,
+html.pst-learning-mode.pst-learning-panel-resizing body {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 @media (max-width: 899px) {
-  html.pst-learning-mode [data-engram-player-host] {
-    top: 70px !important;
-    right: 10px !important;
-    bottom: auto !important;
-    left: 10px !important;
-    height: min(42vh, 420px) !important;
+  html.pst-learning-mode ytd-app {
+    width: 100vw !important;
+  }
+  html.pst-learning-mode ytd-watch-flexy #columns {
+    padding: 70px 10px 0 !important;
   }
   html.pst-learning-mode #pst-learning-panel {
-    top: calc(min(42vh, 420px) + 80px) !important;
+    top: calc(min(56.25vw, 420px) + 80px) !important;
     width: 100vw !important;
     min-width: 0 !important;
-    height: calc(100vh - min(42vh, 420px) - 80px) !important;
+    height: calc(100vh - min(56.25vw, 420px) - 80px) !important;
     border-left: 0 !important;
     border-top: 1px solid #242529 !important;
   }

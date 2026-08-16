@@ -154,3 +154,61 @@ test("contextual backend failure falls back to the selected translation engine",
   assert.equal(entry.gloss, "熄灭");
   assert.equal(entry.contextual, false);
 });
+
+test("coalesces concurrent lookups for the same word and subtitle", async () => {
+  const messages = [];
+  let releaseRequests;
+  const requestGate = new Promise((resolve) => { releaseRequests = resolve; });
+  const lookupContext = createDictionaryContext({
+    normalizeSubtitle: (value) => String(value || "").trim(),
+    safeSendMessage: async (message) => {
+      messages.push(message);
+      await requestGate;
+      return message.type === "DICTIONARY_LOOKUP"
+        ? { ok: true, entry: { word: "headache", phonetic: "/ˈhedeɪk/", definitions: [] } }
+        : { ok: true, entry: { lemma: "headache", phrase: "", partOfSpeech: "noun", meaningZh: "麻烦", definitionEn: "A problem." } };
+    },
+  });
+  const dictionary = new lookupContext.ParamountSubtitles.DictionaryService({
+    translate: async () => assert.fail("fallback translator should not run"),
+  });
+  const options = { sentence: "It saved me many headaches." };
+
+  const first = dictionary.lookup("headaches", { engine: "local" }, options);
+  const second = dictionary.lookup("headaches", { engine: "local" }, options);
+  assert.equal(messages.length, 2);
+  releaseRequests();
+
+  const [firstEntry, secondEntry] = await Promise.all([first, second]);
+  assert.deepEqual(firstEntry, secondEntry);
+  assert.equal(messages.length, 2);
+});
+
+test("returns contextual meaning without waiting for a slower phonetic service", async () => {
+  let releaseDictionary;
+  const dictionaryGate = new Promise((resolve) => { releaseDictionary = resolve; });
+  const lookupContext = createDictionaryContext({
+    normalizeSubtitle: (value) => String(value || "").trim(),
+    safeSendMessage: async (message) => {
+      if (message.type === "DICTIONARY_LOOKUP") {
+        await dictionaryGate;
+        return { ok: true, entry: { word: "headache", phonetic: "/ˈhedeɪk/", definitions: [] } };
+      }
+      return { ok: true, entry: { lemma: "headache", phrase: "", partOfSpeech: "noun", meaningZh: "麻烦", definitionEn: "A problem." } };
+    },
+  });
+  const dictionary = new lookupContext.ParamountSubtitles.DictionaryService({
+    translate: async () => assert.fail("fallback translator should not run"),
+  });
+  const settings = { engine: "local" };
+  const options = { sentence: "It saved me many headaches." };
+
+  const entry = await dictionary.lookup("headaches", settings, options);
+  assert.equal(entry.gloss, "麻烦");
+  assert.equal(entry.phonetic, "");
+
+  releaseDictionary();
+  await new Promise((resolve) => setImmediate(resolve));
+  const cached = await dictionary.lookup("headaches", settings, options);
+  assert.equal(cached.phonetic, "/ˈhedeɪk/");
+});

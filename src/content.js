@@ -52,9 +52,43 @@
     };
   };
 
+  const openLearningMode = () => {
+    const context = getLearningContext();
+    const sourceUrl = context.video?.url || location.href;
+    try {
+      const url = new URL(sourceUrl);
+      url.searchParams.set("engram_learning", "1");
+      const currentTime = Math.floor(Number(context.video?.currentTime) || 0);
+      if (currentTime > 0) url.searchParams.set("t", `${currentTime}s`);
+      window.open(url.toString(), "_blank", "noopener");
+    } catch {
+      const videoId = context.video?.id;
+      if (!videoId) return;
+      window.open(
+        `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&engram_learning=1`,
+        "_blank",
+        "noopener",
+      );
+    }
+  };
+
+  const playerSettings = videoSite.id === "youtube" && PST.YouTubePlayerSettings
+    ? new PST.YouTubePlayerSettings(settingsStore, { onOpenLearningMode: openLearningMode })
+    : null;
+
+  const storeVocabularyEntry = async (wordEntry, sentence = currentCue.text) => {
+    if (!chrome.storage?.local) throw new Error(t("storageUnavailable"));
+    const { vocabulary = [] } = await chrome.storage.local.get({ vocabulary: [] });
+    const entry = { ...wordEntry, sentence, addedAt: Date.now() };
+    const next = [entry, ...vocabulary.filter((item) => item.lemma !== entry.lemma)].slice(0, 500);
+    await chrome.storage.local.set({ vocabulary: next });
+    return entry;
+  };
+
   const mount = async () => {
     if (!document.documentElement) return;
     overlay.mount();
+    playerSettings?.mount();
     capture.start();
     const registration = await PST.safeSendMessage({ type: "REGISTER_VIDEO_TAB", site: videoSite });
     if (
@@ -62,7 +96,13 @@
       && new URLSearchParams(location.search).get("engram_learning") === "1"
       && PST.YouTubeLearningWorkspace
     ) {
-      const workspace = new PST.YouTubeLearningWorkspace({ getContext: async () => getLearningContext(), overlay });
+      const workspace = new PST.YouTubeLearningWorkspace({
+        getContext: async () => getLearningContext(),
+        overlay,
+        dictionary,
+        getSettings: () => settings,
+        onAddWord: storeVocabularyEntry,
+      });
       globalThis.__PST_LEARNING_WORKSPACE__ = workspace;
       await workspace.mount(registration?.tabId);
     }
@@ -275,11 +315,7 @@
   overlay.addEventListener("vocabulary:add", async (event) => {
     const lemma = event.detail?.lemma;
     try {
-      if (!chrome.storage?.local) throw new Error(t("storageUnavailable"));
-      const { vocabulary = [] } = await chrome.storage.local.get({ vocabulary: [] });
-      const entry = { ...event.detail, sentence: currentCue.text, addedAt: Date.now() };
-      const next = [entry, ...vocabulary.filter((item) => item.lemma !== entry.lemma)].slice(0, 500);
-      await chrome.storage.local.set({ vocabulary: next });
+      const entry = await storeVocabularyEntry(event.detail);
       overlay.showVocabularyResult({ state: "success", lemma });
       overlay.setStatus({ message: t("wordAddedStatus", entry.lemma), tone: "ok", open: true });
     } catch (error) {
@@ -298,6 +334,7 @@
     capture.stop();
     translator.releaseLocal();
     if (!event.persisted) {
+      playerSettings?.destroy();
       unsubscribeSettings();
       translator.dispose();
     }
@@ -373,6 +410,7 @@
     settingsStore,
     translator,
     overlay,
+    playerSettings,
     capture,
     simulate: (text) => capture.simulate(text),
   };

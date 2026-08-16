@@ -101,7 +101,7 @@ const resolveTranslationProxyUrl = async () => {
 const postToTranslationProxy = async (path, body) => {
   const baseUrl = await resolveTranslationProxyUrl();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), path.startsWith("/v1/lesson/") ? 30000 : 15000);
+  const timeout = setTimeout(() => controller.abort(), path.startsWith("/v1/lesson/") ? 100000 : 15000);
   let response;
   try {
     response = await fetch(new URL(path, `${baseUrl}/`).toString(), {
@@ -160,22 +160,30 @@ const lookupWordWithContext = async ({ word, sentence, context = [] }) => {
   return payload.entry;
 };
 
-const analyzeLearningMaterial = async ({ learnerLevel, video, cues }) => {
+const analyzeLearningMaterial = async ({ learnerLevel, video, cues, transcriptComplete }) => {
   const payload = await postToTranslationProxy("/v1/lesson/analyze", {
     learnerLevel,
     video: {
       title: video?.title,
       duration: video?.duration,
     },
-    cues,
+    cues: (Array.isArray(cues) ? cues : []).map((cue) => ({
+      start: cue?.start,
+      end: cue?.end,
+      text: cue?.text,
+    })),
+    transcriptComplete: Boolean(transcriptComplete),
   });
   if (!payload?.analysis) throw new Error(t("proxyRequestFailed", 502));
   return payload.analysis;
 };
 
-const discussLearningMaterial = async ({ mode, hint, learnerLevel, video, cues, expressions, messages }) => {
+const discussLearningMaterial = async ({ mode, phase, questionIndex, questionPlan, hint, learnerLevel, video, cues, expressions, messages }) => {
   const payload = await postToTranslationProxy("/v1/lesson/discuss", {
     mode,
+    phase,
+    questionIndex,
+    questionPlan,
     hint: Boolean(hint),
     learnerLevel,
     video: { title: video?.title, duration: video?.duration },
@@ -224,6 +232,13 @@ const fetchDictionaryEntry = async (candidates) => {
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "OPEN_LEARNING_DASHBOARD") {
+    chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") })
+      .then((tab) => sendResponse({ ok: true, tabId: tab?.id || null }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (["REGISTER_VIDEO_TAB", "REGISTER_PARAMOUNT_TAB"].includes(message?.type) && sender.tab?.id) {
     rememberVideoTab(sender.tab.id)
       .then(() => sendResponse({ ok: true, tabId: lastVideoTabId }))

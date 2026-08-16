@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node server.mjs",
     "start:local": "node start-local.mjs",
+    "dev": "node --watch --watch-preserve-output dev.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }

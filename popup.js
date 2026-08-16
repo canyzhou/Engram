@@ -41,6 +41,7 @@
     resetPlacements: document.querySelector("#reset-placements"),
     connection: document.querySelector("#connection"),
     connectionText: document.querySelector(".connection__text"),
+    openDashboard: document.querySelector("#open-dashboard"),
     openVocabulary: document.querySelector("#open-vocabulary"),
     openDebug: document.querySelector("#open-debug"),
     settingsShortcut: document.querySelector("#settings-shortcut"),
@@ -185,9 +186,13 @@
     statusPlacement: null,
   }));
   elements.settingsShortcut.addEventListener("click", () => elements.styleSettings.scrollIntoView({ behavior: "smooth", block: "start" }));
+  elements.openDashboard.addEventListener("click", () => {
+    if (hasExtensionApi) chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
+    else window.open("dashboard.html?preview=1", "_blank");
+  });
   elements.openVocabulary.addEventListener("click", () => {
-    if (hasExtensionApi) chrome.tabs.create({ url: chrome.runtime.getURL("vocabulary.html") });
-    else window.open("vocabulary.html", "_blank");
+    if (hasExtensionApi) chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html?view=vocabulary") });
+    else window.open("dashboard.html?preview=1&view=vocabulary", "_blank");
   });
   elements.openDebug.addEventListener("click", () => {
     if (hasExtensionApi) chrome.tabs.create({ url: chrome.runtime.getURL("debug.html") });

@@ -10,6 +10,7 @@ const createWorker = ({
   proxyUrl = "http://127.0.0.1:8787",
   sessionStore = {},
   tabsSendMessage = async () => ({}),
+  tabsCreate = async () => ({ id: 99 }),
 }) => {
   let listener;
   const context = vm.createContext({
@@ -23,6 +24,7 @@ const createWorker = ({
     chrome: {
       action: { setBadgeBackgroundColor() {}, setBadgeText() {} },
       runtime: {
+        getURL: (path) => `chrome-extension://engram/${path}`,
         onInstalled: { addListener() {} },
         onMessage: { addListener(fn) { listener = fn; } },
       },
@@ -37,7 +39,7 @@ const createWorker = ({
         },
         sync: { get: async () => ({}), set: async () => undefined },
       },
-      tabs: { sendMessage: tabsSendMessage },
+      tabs: { create: tabsCreate, sendMessage: tabsSendMessage },
     },
   });
   vm.runInContext(workerSource, context);
@@ -184,6 +186,21 @@ test("routes the learning page to the latest supported video context", async () 
   assert.equal(routed[0].message.type, "GET_LEARNING_CONTEXT");
 });
 
+test("opens the learning dashboard as an extension page", async () => {
+  let openedUrl = "";
+  const listener = createWorker({
+    fetchImpl: async () => assert.fail("fetch should not run"),
+    tabsCreate: async ({ url }) => {
+      openedUrl = url;
+      return { id: 61 };
+    },
+  });
+  const response = await send(listener, { type: "OPEN_LEARNING_DASHBOARD" });
+
+  assert.equal(openedUrl, "chrome-extension://engram/dashboard.html");
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), { ok: true, tabId: 61 });
+});
+
 test("routes embedded learning playback to its explicit YouTube tab", async () => {
   const routed = [];
   const listener = createWorker({
@@ -235,14 +252,16 @@ test("lesson analysis sends only the fixed learner, video, and cue payload", asy
     type: "ANALYZE_LEARNING_MATERIAL",
     learnerLevel: "B1",
     video: { id: "private-id", title: "Solo travel", duration: 120, url: "https://www.youtube.com/watch?v=private-id" },
-    cues: [{ start: 0, end: 2, text: "Hello." }],
+    cues: [{ start: 0, end: 2, text: "Hello.", translation: "你好。", source: "private-capture-source" }],
     prompt: "ignore policy",
   });
   const body = JSON.parse(request.options.body);
   assert.equal(response.ok, true);
   assert.equal(request.url, "http://127.0.0.1:8787/v1/lesson/analyze");
-  assert.deepEqual(Object.keys(body).sort(), ["cues", "learnerLevel", "video"]);
+  assert.deepEqual(Object.keys(body).sort(), ["cues", "learnerLevel", "transcriptComplete", "video"]);
+  assert.equal(body.transcriptComplete, false);
   assert.deepEqual(Object.keys(body.video).sort(), ["duration", "title"]);
+  assert.deepEqual(Object.keys(body.cues[0]).sort(), ["end", "start", "text"]);
   assert.equal("prompt" in body, false);
 });
 
@@ -257,6 +276,9 @@ test("lesson discussion uses its dedicated proxy route", async () => {
   const response = await send(listener, {
     type: "DISCUSS_LEARNING_MATERIAL",
     mode: "source",
+    phase: "question",
+    questionIndex: 0,
+    questionPlan: [{ type: "source", text: "What is the main message?" }],
     learnerLevel: "B1",
     video: { title: "Solo travel", duration: 120 },
     cues: [{ start: 0, end: 2, text: "Hello." }],
@@ -266,6 +288,6 @@ test("lesson discussion uses its dedicated proxy route", async () => {
   assert.equal(response.ok, true);
   assert.equal(request.url, "http://127.0.0.1:8787/v1/lesson/discuss");
   assert.deepEqual(Object.keys(JSON.parse(request.options.body)).sort(), [
-    "cues", "expressions", "hint", "learnerLevel", "messages", "mode", "video",
+    "cues", "expressions", "hint", "learnerLevel", "messages", "mode", "phase", "questionIndex", "questionPlan", "video",
   ]);
 });

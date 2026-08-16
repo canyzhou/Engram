@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Engram · 学习模式</title>
-    <link rel="stylesheet" href="learning-mode.css">
+    <link rel="stylesheet" href="learning-mode.css?v=7">
   </head>
   <body>
     <main class="learning-shell" data-state="loading">
@@ -56,18 +56,14 @@
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6v12M6 7l8 5-8 5Z"/></svg>
                 </button>
                 <span class="time-display"><span id="current-time">0:00</span> / <span id="duration">0:00</span></span>
-                <span class="control-spacer"></span>
-                <button class="control-button" id="loop-toggle" type="button" aria-pressed="false" aria-label="单句循环">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h9a3 3 0 0 1 3 3v1M17 5l2 2-2 2M17 17H8a3 3 0 0 1-3-3v-1M7 19l-2-2 2-2"/></svg>
-                </button>
               </div>
             </div>
           </div>
 
           <div class="cue-rail-section">
-            <div class="current-sentence" id="current-sentence">
+            <div class="current-sentence" id="current-sentence" hidden>
               <span>当前句</span>
-              <p>字幕准备好后，会在这里跟随播放。</p>
+              <p></p>
             </div>
             <div class="cue-rail" id="cue-rail" aria-label="字幕片段"></div>
           </div>
@@ -88,38 +84,46 @@
               <p>正在分析字幕与学习价值…</p>
             </div>
             <div class="analysis-error" id="analysis-error" hidden>
-              <h2>字幕已经准备好</h2>
-              <p id="analysis-error-message">材料分析暂时不可用，你仍然可以先从字幕开始。</p>
+              <h2>AI 分析未完成</h2>
+              <p id="analysis-error-message">AI 没有返回完整结果，请重试或暂时使用本地简版。</p>
               <div class="error-actions">
                 <button class="primary-button" id="retry-analysis" type="button">重试分析</button>
+                <button class="text-button" id="use-local-analysis" type="button">使用本地简版</button>
                 <button class="text-button" type="button" data-switch-tab="transcript">先看字幕</button>
               </div>
             </div>
             <div class="analysis-content" id="analysis-content" hidden>
-              <h2>这段视频适合你</h2>
+              <p class="analysis-source" id="analysis-source" hidden>本地简版 · 未使用 AI</p>
+              <div class="analysis-heading">
+                <h2>你能学到什么</h2>
+                <button class="refresh-analysis-button" id="refresh-analysis" type="button" aria-label="重新获取 AI 分析">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
+                  <span>刷新 AI 分析</span>
+                </button>
+              </div>
+              <ul class="learning-outcomes" id="learning-outcomes"></ul>
               <div class="level-summary">
                 <span>材料 <strong id="material-level">B2</strong></span>
                 <i></i>
                 <span>你的水平 <strong id="analysis-learner-level">B1</strong></span>
               </div>
-              <p class="fit-verdict" id="fit-verdict">有挑战，但适合精学</p>
-              <button class="primary-button start-learning" id="start-learning" type="button">
-                <span id="start-label">开始 12 分钟学习</span>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-              </button>
               <dl class="difficulty-strip">
                 <div><dt>词汇</dt><dd id="vocabulary-level">B2</dd></div>
                 <div><dt>语速</dt><dd id="speech-level">B1+</dd></div>
                 <div><dt>句法</dt><dd id="syntax-level">B2</dd></div>
               </dl>
               <section class="expression-section">
-                <h3>最值得带走</h3>
+                <div class="section-heading">
+                  <h3>学习重点</h3>
+                  <span id="learning-item-count">0 项</span>
+                </div>
                 <div class="expression-list" id="expression-list"></div>
               </section>
               <section class="difficulty-timeline-section">
-                <h3>难度时间轴</h3>
-                <div class="difficulty-timeline" id="difficulty-timeline" aria-label="视频难度时间轴"></div>
-                <p id="recommended-range">推荐精学 0:00–0:00</p>
+                <h3>推荐片段</h3>
+                <div class="difficulty-timeline" id="difficulty-timeline" aria-label="推荐片段分布"></div>
+                <button class="recommended-range" id="recommended-range" type="button">建议精学 0:00–0:00</button>
+                <div class="timeline-segment-list" id="timeline-segment-list"></div>
               </section>
             </div>
           </section>
@@ -137,16 +141,52 @@
           </section>
 
           <section class="tab-panel discussion-panel" id="panel-discussion" role="tabpanel" aria-labelledby="tab-discussion" hidden>
-            <div class="discussion-mode" role="group" aria-label="讨论模式">
-              <button type="button" data-discussion-mode="source" aria-pressed="true">基于材料</button>
-              <button type="button" data-discussion-mode="advanced" aria-pressed="false">进阶讨论</button>
+            <div class="discussion-outline" id="discussion-outline">
+              <header class="discussion-outline-heading">
+                <h2>讨论提纲</h2>
+                <p>AI 老师会按以下顺序带你完成讨论，并在最后给出纠错与总结。</p>
+              </header>
+              <section class="discussion-question-group" aria-labelledby="source-question-title">
+                <div class="discussion-question-group-heading">
+                  <h3 id="source-question-title">理解与观点</h3>
+                  <span>基于视频</span>
+                </div>
+                <ol class="discussion-question-list" id="source-question-list"></ol>
+              </section>
+              <section class="discussion-question-group" aria-labelledby="advanced-question-title">
+                <div class="discussion-question-group-heading">
+                  <h3 id="advanced-question-title">延伸思考</h3>
+                  <span>进阶</span>
+                </div>
+                <ol class="discussion-question-list" id="advanced-question-list"></ol>
+              </section>
             </div>
-            <div class="discussion-messages" id="discussion-messages" aria-live="polite"></div>
-            <div class="discussion-empty" id="discussion-empty">
-              <h2>把刚才的输入变成自己的表达</h2>
-              <p>AI 会一次问一个问题，并用时间戳引用视频内容。</p>
+
+            <section class="discussion-session" id="discussion-session" aria-label="AI 讨论课" hidden>
+              <header class="discussion-session-header">
+                <div class="discussion-progress-copy">
+                  <span id="discussion-phase-label">提纲问题</span>
+                  <strong><span id="discussion-progress-current">0</span> / <span id="discussion-progress-total">10</span></strong>
+                </div>
+                <div class="discussion-progress-track" role="progressbar" aria-label="讨论进度" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0">
+                  <i id="discussion-progress-bar"></i>
+                </div>
+                <button class="discussion-outline-toggle" id="discussion-outline-toggle" type="button" aria-expanded="false" aria-controls="discussion-session-outline">
+                  查看提纲
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+                </button>
+                <div class="discussion-session-outline" id="discussion-session-outline" hidden>
+                  <ol id="discussion-session-question-list"></ol>
+                </div>
+              </header>
+              <div class="discussion-messages" id="discussion-messages" aria-live="polite"></div>
+            </section>
+
+            <div class="discussion-start-actions" id="discussion-start-actions">
+              <p>约 10–15 分钟 · 逐题带练 · 简短自由讨论 · 课堂总结</p>
               <button class="primary-button" id="start-discussion" type="button">开始讨论</button>
             </div>
+
             <form class="composer" id="discussion-form" hidden>
               <div class="composer-actions">
                 <button class="hint-button" id="request-hint" type="button">给我提示</button>
@@ -161,8 +201,9 @@
         </aside>
       </section>
     </main>
-    <script src="src/namespace.js"></script>
-    <script src="src/learning-mode-core.js"></script>
-    <script src="learning-mode.js"></script>
+    <script src="src/namespace.js?v=5"></script>
+    <script src="src/learning-mode-core.js?v=7"></script>
+    <script src="src/learning-history-core.js?v=1"></script>
+    <script src="learning-mode.js?v=7"></script>
   </body>
 </html>

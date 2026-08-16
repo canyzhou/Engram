@@ -1,7 +1,7 @@
 (() => {
   const root = globalThis.ParamountSubtitles || {};
 
-  root.VERSION = "0.6.3";
+  root.VERSION = "0.6.4";
   root.BRIDGE_SOURCE = "paramount-subtitle-page-bridge";
   root.CONTENT_SOURCE = "paramount-subtitle-content";
 
@@ -16,12 +16,20 @@
     return { id: "unknown", name: "Video" };
   };
 
-  root.normalizeSubtitle = (value) => String(value || "")
+  // Caption providers may expose accessibility sound cues and repeated
+  // chevrons used to announce a speaker change. Keep this deliberately narrow:
+  // arbitrary bracketed text and a single comparison chevron may be useful
+  // language-learning content and must remain untouched.
+  root.stripNonSpeechCaptionCues = (value) => String(value || "")
+    .replace(/\[\s*music\s*\]/gi, "")
+    .replace(/(?:>{2,}|＞{2,})/g, " ");
+
+  root.normalizeSubtitle = (value) => root.stripNonSpeechCaptionCues(String(value || "")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
+    .replace(/&gt;/gi, ">"))
     .replace(/\s*\n\s*/g, " ")
     .replace(/\s+/g, " ")
     .trim();

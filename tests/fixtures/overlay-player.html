@@ -4,9 +4,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Engram player-bound overlay QA</title>
+    <link rel="stylesheet" href="../../src/learning-workspace-page.css">
     <style>
       * { box-sizing: border-box; }
       html, body { min-height: 100%; margin: 0; background: #0f0f0f; color: #fff; font-family: system-ui, sans-serif; }
+      ytd-app, ytd-page-manager, ytd-watch-flexy { display: block; }
       .toolbar { display: flex; gap: 10px; padding: 14px 24px; }
       button { padding: 8px 13px; border: 0; border-radius: 8px; font: inherit; cursor: pointer; }
       .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; padding: 0 24px; }
@@ -23,6 +25,8 @@
       .player::before { content: "YouTube player mock"; position: absolute; top: 16px; left: 18px; opacity: 0.72; }
       .player::after { content: ""; position: absolute; left: 16px; right: 16px; bottom: 13px; height: 4px; background: linear-gradient(90deg, #f00 0 36%, #777 36%); }
       video { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+      .ytp-right-controls { position: absolute; right: 5px; bottom: 0; z-index: 4; display: flex; height: 48px; align-items: center; }
+      .mock-ytp-button { display: grid; width: 48px; height: 48px; padding: 0; border-radius: 0; background: transparent; color: white; place-items: center; }
       aside { display: grid; align-content: start; gap: 12px; }
       aside span { display: block; height: 92px; border-radius: 10px; background: #252525; }
       .comments { min-height: 900px; margin: 28px 24px; padding: 24px; border-radius: 14px; background: #171717; }
@@ -30,37 +34,80 @@
     </style>
   </head>
   <body>
-    <div class="toolbar">
-      <button id="toggle-layout" type="button">Toggle theater layout</button>
-      <button id="next-cue" type="button">Show pending translation</button>
-      <button id="show-comments" type="button">Scroll to comments</button>
-      <button id="auto-sentence" type="button">Render complete auto-caption sentence</button>
-    </div>
-    <div class="layout">
-      <main class="player">
-        <video></video>
-      </main>
-      <aside aria-label="Recommendations"><span></span><span></span><span></span></aside>
-    </div>
-    <section class="comments" id="comments">
-      <h2>Comments</h2>
-      <p>The subtitle overlay must not appear here after the video leaves the viewport.</p>
-      <p>Recommendations and comments remain available.</p>
-    </section>
+    <ytd-app>
+      <ytd-masthead class="toolbar">
+        <button id="toggle-layout" type="button">Toggle theater layout</button>
+        <button id="next-cue" type="button">Show pending translation</button>
+        <button id="show-comments" type="button">Scroll to comments</button>
+        <button id="auto-sentence" type="button">Render complete auto-caption sentence</button>
+      </ytd-masthead>
+      <ytd-page-manager>
+        <ytd-watch-flexy>
+          <div class="layout" id="columns">
+            <div id="primary">
+              <div id="primary-inner">
+                <main class="player">
+                  <video></video>
+                  <div class="ytp-right-controls" data-pst-youtube-controls>
+                    <button class="mock-ytp-button" type="button" aria-label="YouTube settings">⚙</button>
+                    <button class="mock-ytp-button" type="button" aria-label="Full screen">⛶</button>
+                  </div>
+                </main>
+                <section class="comments" id="comments">
+                  <h2>Comments</h2>
+                  <p>The subtitle overlay must not appear here after the video leaves the viewport.</p>
+                  <p>Recommendations and comments remain available.</p>
+                </section>
+              </div>
+            </div>
+            <aside id="secondary" aria-label="Recommendations"><span></span><span></span><span></span></aside>
+          </div>
+        </ytd-watch-flexy>
+      </ytd-page-manager>
+    </ytd-app>
     <script src="../../src/namespace.js"></script>
-    <script src="../../src/i18n.js"></script>
+    <script src="../../src/learning-mode-core.js"></script>
+    <script src="../../src/i18n.js?v=hover-lookup-1"></script>
     <script src="../../src/settings.js"></script>
+    <script src="../../src/player-settings.js"></script>
     <script src="../../src/capture.js"></script>
-    <script src="../../src/overlay.js"></script>
+    <script src="../../src/overlay.js?v=hover-lookup-1"></script>
+    <script src="../../src/learning-workspace-shell.js?v=hover-lookup-1"></script>
     <script>
       const PST = globalThis.ParamountSubtitles;
-      const overlay = new PST.SubtitleOverlay({ lookup: async () => null });
+      const settingsStore = new PST.SettingsStore();
+      const playerSettings = new PST.YouTubePlayerSettings(settingsStore, {
+        onOpenLearningMode: () => {
+          document.body.dataset.learningModeOpened = String(
+            Number(document.body.dataset.learningModeOpened || 0) + 1,
+          );
+        },
+      });
+      const overlay = new PST.SubtitleOverlay({
+        lookup: async (word) => {
+          document.body.dataset.overlayLookupCount = String(
+            Number(document.body.dataset.overlayLookupCount || 0) + 1,
+          );
+          document.body.dataset.overlayLookup = word;
+          const normalized = word.toLowerCase();
+          return {
+            original: normalized,
+            lemma: normalized,
+            phrase: normalized === "level" ? "English level" : "",
+            phonetic: "/ˈlevəl/",
+            partOfSpeech: "noun",
+            gloss: "水平",
+            definition: "A position on a scale of amount or difficulty.",
+          };
+        },
+      });
       const initialCue = {
         text: "Do you actually know your real English level?",
         translation: "你真的了解自己的英语水平吗？",
         source: "YouTube JSON3",
       };
       overlay.mount();
+      playerSettings.mount();
       overlay.updateSettings({ ...PST.DEFAULT_SETTINGS, mode: "bilingual", fontSize: 28, position: 13 });
       overlay.setCue(initialCue);
       document.querySelector("#toggle-layout").addEventListener("click", () => {
@@ -91,6 +138,75 @@
         document.body.dataset.autoSentenceCount = String(cues.length);
       });
       globalThis.qaOverlay = overlay;
+      globalThis.qaPlayerSettings = playerSettings;
+      if (new URLSearchParams(location.search).get("engram_learning") === "1") {
+        const workspaceVideo = document.querySelector("video");
+        let workspaceTime = 30;
+        let workspacePaused = true;
+        workspaceVideo.classList.add("html5-main-video");
+        Object.defineProperties(workspaceVideo, {
+          currentTime: {
+            configurable: true,
+            get: () => workspaceTime,
+            set: (value) => {
+              workspaceTime = Number(value) || 0;
+              workspaceVideo.dispatchEvent(new Event("timeupdate"));
+            },
+          },
+          duration: { configurable: true, get: () => 702 },
+          ended: { configurable: true, get: () => false },
+          paused: { configurable: true, get: () => workspacePaused },
+        });
+        workspaceVideo.play = () => {
+          workspacePaused = false;
+          workspaceVideo.dispatchEvent(new Event("play"));
+          return Promise.resolve();
+        };
+        workspaceVideo.pause = () => {
+          workspacePaused = true;
+          workspaceVideo.dispatchEvent(new Event("pause"));
+        };
+        const qaChrome = globalThis.chrome || {};
+        qaChrome.runtime = {
+          getURL: () => "about:blank",
+        };
+        globalThis.chrome = qaChrome;
+        const workspace = new PST.YouTubeLearningWorkspace({
+          getContext: async () => ({
+            ok: true,
+            video: { title: "How to Film Cinematic Videos by Yourself", author: "Kyle Kotajarvi" },
+            cues: [
+              { start: 25, end: 36, text: "It's just problem-solving within a limited set of constraints." },
+              { start: 37, end: 43, text: "Every choice has to support the story you want to tell." },
+            ],
+          }),
+          overlay,
+          dictionary: {
+            lookup: async (word, settings, context) => {
+              document.body.dataset.learningLookupCount = String(
+                Number(document.body.dataset.learningLookupCount || 0) + 1,
+              );
+              document.body.dataset.learningLookup = JSON.stringify({ word, context });
+              const normalized = word.toLowerCase();
+              return {
+                original: normalized,
+                lemma: normalized === "constraints" ? "constraint" : normalized,
+                phrase: normalized === "constraints" ? "set of constraints" : "",
+                phonetic: "/ˈlɪmɪtɪd/",
+                partOfSpeech: "adjective",
+                gloss: "有限的",
+                definition: "Restricted in size, amount, or extent.",
+              };
+            },
+          },
+          getSettings: () => ({ ...PST.DEFAULT_SETTINGS, hoverDictionary: true }),
+          onAddWord: async (entry, sentence) => {
+            document.body.dataset.learningSavedWord = JSON.stringify({ entry, sentence });
+          },
+        });
+        workspace.mount();
+        globalThis.qaLearningWorkspace = workspace;
+      }
     </script>
   </body>
 </html>
