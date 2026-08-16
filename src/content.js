@@ -14,15 +14,58 @@
   let cueToken = 0;
   let currentCue = { text: "", translation: "", source: "", context: [], wordHints: [] };
   const cueHistory = [];
+  const cueTranslations = new Map();
   let lastContextTime = null;
   let preparingFromInteraction = false;
   const videoSite = PST.detectVideoSite();
 
-  const mount = () => {
+  const readVideoMetadata = () => {
+    const url = location.href;
+    let id = "";
+    try { id = new URL(url).searchParams.get("v") || ""; } catch {}
+    const title = document.querySelector("meta[name='title']")?.content
+      || document.querySelector("meta[property='og:title']")?.content
+      || document.title.replace(/\s*-\s*YouTube\s*$/i, "").trim()
+      || "YouTube video";
+    const author = document.querySelector("link[itemprop='name']")?.getAttribute("content")
+      || document.querySelector("#channel-name a, ytd-channel-name a")?.textContent?.trim()
+      || "YouTube";
+    return { id, title, author, url };
+  };
+
+  const getLearningContext = () => {
+    const learning = capture.learningContext();
+    return {
+      ok: true,
+      completeTimeline: learning.completeTimeline,
+      cues: learning.cues.map((cue) => ({
+        ...cue,
+        translation: cueTranslations.get(PST.normalizeSubtitle(cue.text)) || "",
+      })),
+      video: {
+        ...readVideoMetadata(),
+        duration: learning.duration,
+        currentTime: learning.currentTime,
+        paused: learning.paused,
+      },
+      site: videoSite,
+    };
+  };
+
+  const mount = async () => {
     if (!document.documentElement) return;
     overlay.mount();
     capture.start();
-    PST.safeSendMessage({ type: "REGISTER_VIDEO_TAB", site: videoSite });
+    const registration = await PST.safeSendMessage({ type: "REGISTER_VIDEO_TAB", site: videoSite });
+    if (
+      videoSite.id === "youtube"
+      && new URLSearchParams(location.search).get("engram_learning") === "1"
+      && PST.YouTubeLearningWorkspace
+    ) {
+      const workspace = new PST.YouTubeLearningWorkspace({ getContext: async () => getLearningContext(), overlay });
+      globalThis.__PST_LEARNING_WORKSPACE__ = workspace;
+      await workspace.mount(registration?.tabId);
+    }
   };
 
   const statusMessage = () => {
@@ -119,9 +162,11 @@
     if (settings.mode === "english") return;
 
     try {
-      const translation = await translator.translate(cue.text, settings, { context });
+      const translation = await translator.translateLatest(cue.text, settings, { context });
       if (token !== cueToken) return;
       currentCue = { ...currentCue, translation };
+      cueTranslations.set(cleanText, translation);
+      if (cueTranslations.size > 1000) cueTranslations.delete(cueTranslations.keys().next().value);
       overlay.setCue(currentCue);
       renderTranslatorStatus(translator.status);
     } catch (error) {
@@ -143,8 +188,11 @@
     }
   };
 
-  settingsStore.subscribe((nextSettings) => {
+  const unsubscribeSettings = settingsStore.subscribe((nextSettings) => {
+    const previousSettings = settings;
     settings = { ...nextSettings };
+    if (!settings.enabled || settings.engine !== previousSettings.engine) cueToken += 1;
+    if (!settings.enabled || settings.engine !== "local") translator.releaseLocal();
     PST.setUiLanguage(settings.uiLanguage);
     translator.localizeStatus?.();
     overlay.updateSettings(settings);
@@ -245,6 +293,19 @@
   capture.addEventListener("status", () => renderTranslatorStatus(translator.status));
   capture.addEventListener("network", () => renderTranslatorStatus(translator.status));
 
+  window.addEventListener("pagehide", (event) => {
+    globalThis.__PST_LEARNING_WORKSPACE__?.destroy?.();
+    capture.stop();
+    translator.releaseLocal();
+    if (!event.persisted) {
+      unsubscribeSettings();
+      translator.dispose();
+    }
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) capture.start();
+  });
+
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area !== "sync") return;
     const patch = {};
@@ -265,6 +326,33 @@
         url: location.href,
         site: videoSite,
       });
+      return false;
+    }
+    if (message?.type === "GET_LEARNING_CONTEXT") {
+      sendResponse(getLearningContext());
+      return false;
+    }
+    if (message?.type === "GET_LEARNING_PLAYBACK") {
+      const video = document.querySelector("#movie_player video, video.html5-main-video, video");
+      sendResponse(video ? {
+        ok: true,
+        currentTime: Number(video.currentTime) || 0,
+        duration: Number(video.duration) || 0,
+        paused: video.paused,
+      } : { ok: false, error: "未找到 YouTube 播放器" });
+      return false;
+    }
+    if (message?.type === "CONTROL_LEARNING_VIDEO") {
+      const video = document.querySelector("#movie_player video, video.html5-main-video, video");
+      if (!video) {
+        sendResponse({ ok: false, error: "未找到 YouTube 播放器" });
+        return false;
+      }
+      const time = Number(message.time);
+      if (message.action === "seek" && Number.isFinite(time)) video.currentTime = Math.max(0, time);
+      if (message.action === "play") video.play().catch(() => undefined);
+      if (message.action === "pause") video.pause();
+      sendResponse({ ok: true, currentTime: video.currentTime, duration: video.duration, paused: video.paused });
       return false;
     }
     if (message?.type === "PREVIEW_CUE") {

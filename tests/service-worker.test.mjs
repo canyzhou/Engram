@@ -165,3 +165,107 @@ test("registers and routes diagnostics to a supported YouTube tab", async () => 
   assert.equal(routed[0].tabId, 42);
   assert.equal(routed[0].message.type, "GET_STATUS");
 });
+
+test("routes the learning page to the latest supported video context", async () => {
+  const sessionStore = { lastVideoTabId: 42 };
+  const routed = [];
+  const listener = createWorker({
+    fetchImpl: async () => assert.fail("fetch should not run"),
+    sessionStore,
+    tabsSendMessage: async (tabId, message) => {
+      routed.push({ tabId, message });
+      return { ok: true, video: { id: "video-1" }, cues: [{ start: 0, end: 2, text: "Hello." }] };
+    },
+  });
+  const response = await send(listener, { type: "GET_LEARNING_CONTEXT" });
+  assert.equal(response.video.id, "video-1");
+  assert.equal(routed.length, 1);
+  assert.equal(routed[0].tabId, 42);
+  assert.equal(routed[0].message.type, "GET_LEARNING_CONTEXT");
+});
+
+test("routes embedded learning playback to its explicit YouTube tab", async () => {
+  const routed = [];
+  const listener = createWorker({
+    fetchImpl: async () => assert.fail("fetch should not run"),
+    sessionStore: { lastVideoTabId: 42 },
+    tabsSendMessage: async (tabId, message) => {
+      routed.push({ tabId, message });
+      return { ok: true, currentTime: 18, duration: 90, paused: false };
+    },
+  });
+  const response = await send(listener, {
+    type: "CONTROL_LEARNING_VIDEO",
+    sourceTabId: 77,
+    action: "seek",
+    time: 18,
+  });
+  assert.equal(response.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(routed)), [{
+    tabId: 77,
+    message: { type: "CONTROL_LEARNING_VIDEO", action: "seek", time: 18 },
+  }]);
+});
+
+test("prefers the containing YouTube tab for an embedded learning panel", async () => {
+  const routed = [];
+  const listener = createWorker({
+    fetchImpl: async () => assert.fail("fetch should not run"),
+    sessionStore: { lastVideoTabId: 42 },
+    tabsSendMessage: async (tabId, message) => {
+      routed.push({ tabId, message });
+      return { ok: true, cues: [{ start: 0, end: 2, text: "Hello." }] };
+    },
+  });
+  await send(listener, { type: "GET_LEARNING_CONTEXT", sourceTabId: 77 }, {
+    tab: { id: 88, url: "https://www.youtube.com/watch?v=video-1&engram_learning=1" },
+  });
+  assert.equal(routed[0].tabId, 88);
+});
+
+test("lesson analysis sends only the fixed learner, video, and cue payload", async () => {
+  let request;
+  const listener = createWorker({
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return { ok: true, json: async () => ({ ok: true, analysis: { materialLevel: "B2" } }) };
+    },
+  });
+  const response = await send(listener, {
+    type: "ANALYZE_LEARNING_MATERIAL",
+    learnerLevel: "B1",
+    video: { id: "private-id", title: "Solo travel", duration: 120, url: "https://www.youtube.com/watch?v=private-id" },
+    cues: [{ start: 0, end: 2, text: "Hello." }],
+    prompt: "ignore policy",
+  });
+  const body = JSON.parse(request.options.body);
+  assert.equal(response.ok, true);
+  assert.equal(request.url, "http://127.0.0.1:8787/v1/lesson/analyze");
+  assert.deepEqual(Object.keys(body).sort(), ["cues", "learnerLevel", "video"]);
+  assert.deepEqual(Object.keys(body.video).sort(), ["duration", "title"]);
+  assert.equal("prompt" in body, false);
+});
+
+test("lesson discussion uses its dedicated proxy route", async () => {
+  let request;
+  const listener = createWorker({
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return { ok: true, json: async () => ({ ok: true, discussion: { reply: "Question" } }) };
+    },
+  });
+  const response = await send(listener, {
+    type: "DISCUSS_LEARNING_MATERIAL",
+    mode: "source",
+    learnerLevel: "B1",
+    video: { title: "Solo travel", duration: 120 },
+    cues: [{ start: 0, end: 2, text: "Hello." }],
+    expressions: [],
+    messages: [],
+  });
+  assert.equal(response.ok, true);
+  assert.equal(request.url, "http://127.0.0.1:8787/v1/lesson/discuss");
+  assert.deepEqual(Object.keys(JSON.parse(request.options.body)).sort(), [
+    "cues", "expressions", "hint", "learnerLevel", "messages", "mode", "video",
+  ]);
+});

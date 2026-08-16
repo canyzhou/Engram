@@ -261,6 +261,15 @@
     loadYouTubeCaptionTrack();
   };
 
+  let scanTimer = 0;
+  const scheduleVideoScan = () => {
+    if (scanTimer) return;
+    scanTimer = setTimeout(() => {
+      scanTimer = 0;
+      scanVideos();
+    }, 100);
+  };
+
   const isCandidateResource = (url, contentType = "") => {
     const value = `${url} ${contentType}`.toLowerCase();
     return /(caption|subtitle|timedtext|webvtt|\.vtt(?:\?|$)|\.ttml(?:\?|$)|\.dfxp(?:\?|$)|\.smi(?:\?|$)|\.smil(?:\?|$)|\.m3u8(?:\?|$)|text\/vtt|ttml\+xml)/i.test(value);
@@ -328,6 +337,10 @@
 
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.data?.source !== CONTENT_SOURCE) return;
+    if (event.data.type === "BRIDGE_PROBE") {
+      post("BRIDGE_READY", { href: location.href });
+      return;
+    }
     if (["SET_SUBTITLE_CAPTURE", "SET_NATIVE_VISIBILITY"].includes(event.data.type)) {
       const detail = event.data.detail || {};
       captureEnabled = event.data.type === "SET_NATIVE_VISIBILITY"
@@ -336,11 +349,10 @@
       shouldHideNative = Boolean(detail.hide);
       sourceLanguage = String(detail.sourceLanguage || sourceLanguage || "en");
       scanVideos();
-      post("BRIDGE_READY", { href: location.href });
     }
   });
 
-  const observer = new MutationObserver(scanVideos);
+  const observer = new MutationObserver(scheduleVideoScan);
   const startObserver = () => {
     if (!document.documentElement) return;
     document.documentElement.dataset.engramSubtitleBridge = "true";

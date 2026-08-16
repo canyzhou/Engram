@@ -19,6 +19,12 @@ test("applies the edge limiter only to translation API calls", () => {
   assert.equal(shouldApplyEdgeRateLimit(new Request("https://worker.example/v1/word-lookup", {
     method: "POST",
   })), true);
+  assert.equal(shouldApplyEdgeRateLimit(new Request("https://worker.example/v1/lesson/analyze", {
+    method: "POST",
+  })), true);
+  assert.equal(shouldApplyEdgeRateLimit(new Request("https://worker.example/v1/lesson/discuss", {
+    method: "POST",
+  })), true);
   assert.equal(shouldApplyEdgeRateLimit(new Request("https://worker.example/health")), false);
 });
 

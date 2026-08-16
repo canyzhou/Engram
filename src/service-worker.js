@@ -65,6 +65,17 @@ const resolveVideoTabId = async () => {
   return lastVideoTabId;
 };
 
+const resolveMessageVideoTabId = async (message, sender) => {
+  const senderTabId = Number(sender?.tab?.id);
+  const senderTabUrl = String(sender?.tab?.url || "");
+  if (Number.isInteger(senderTabId) && senderTabId > 0 && /^(?:https:\/\/)?(?:www\.)?youtube\.com\//i.test(senderTabUrl)) {
+    return senderTabId;
+  }
+  const requested = Number(message?.sourceTabId);
+  if (Number.isInteger(requested) && requested > 0) return requested;
+  return resolveVideoTabId();
+};
+
 const normalizeTranslationProxyUrl = (value) => {
   let url;
   try {
@@ -90,7 +101,7 @@ const resolveTranslationProxyUrl = async () => {
 const postToTranslationProxy = async (path, body) => {
   const baseUrl = await resolveTranslationProxyUrl();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), path.startsWith("/v1/lesson/") ? 30000 : 15000);
   let response;
   try {
     response = await fetch(new URL(path, `${baseUrl}/`).toString(), {
@@ -149,6 +160,33 @@ const lookupWordWithContext = async ({ word, sentence, context = [] }) => {
   return payload.entry;
 };
 
+const analyzeLearningMaterial = async ({ learnerLevel, video, cues }) => {
+  const payload = await postToTranslationProxy("/v1/lesson/analyze", {
+    learnerLevel,
+    video: {
+      title: video?.title,
+      duration: video?.duration,
+    },
+    cues,
+  });
+  if (!payload?.analysis) throw new Error(t("proxyRequestFailed", 502));
+  return payload.analysis;
+};
+
+const discussLearningMaterial = async ({ mode, hint, learnerLevel, video, cues, expressions, messages }) => {
+  const payload = await postToTranslationProxy("/v1/lesson/discuss", {
+    mode,
+    hint: Boolean(hint),
+    learnerLevel,
+    video: { title: video?.title, duration: video?.duration },
+    cues,
+    expressions,
+    messages,
+  });
+  if (!payload?.discussion) throw new Error(t("proxyRequestFailed", 502));
+  return payload.discussion;
+};
+
 const fetchDictionaryEntry = async (candidates) => {
   for (const candidate of candidates || []) {
     if (dictionaryCache.has(candidate)) return dictionaryCache.get(candidate);
@@ -204,6 +242,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "GET_LEARNING_CONTEXT") {
+    resolveMessageVideoTabId(message, sender)
+      .then((tabId) => {
+        if (!tabId) throw new Error(t("videoTabMissing"));
+        return chrome.tabs.sendMessage(tabId, { type: "GET_LEARNING_CONTEXT" });
+      })
+      .then((response) => sendResponse(response || { ok: false, error: t("playerNoResponse") }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (["GET_LEARNING_PLAYBACK", "CONTROL_LEARNING_VIDEO"].includes(message?.type)) {
+    resolveMessageVideoTabId(message, sender)
+      .then((tabId) => {
+        if (!tabId) throw new Error(t("videoTabMissing"));
+        return chrome.tabs.sendMessage(tabId, {
+          type: message.type,
+          action: message.action,
+          time: message.time,
+        });
+      })
+      .then((response) => sendResponse(response || { ok: false, error: t("playerNoResponse") }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (["PREVIEW_VIDEO_CUE", "PREVIEW_PARAMOUNT_CUE"].includes(message?.type)) {
     resolveVideoTabId()
       .then((tabId) => {
@@ -235,6 +299,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "CONTEXTUAL_WORD_LOOKUP") {
     lookupWordWithContext(message)
       .then((entry) => sendResponse({ ok: true, entry }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "ANALYZE_LEARNING_MATERIAL") {
+    analyzeLearningMaterial(message)
+      .then((analysis) => sendResponse({ ok: true, analysis }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "DISCUSS_LEARNING_MATERIAL") {
+    discussLearningMaterial(message)
+      .then((discussion) => sendResponse({ ok: true, discussion }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }

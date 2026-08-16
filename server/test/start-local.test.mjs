@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
 import {
+  DEFAULT_ENV_PATH,
   loadLocalEnvironment,
   parseLocalEnv,
-  pathIsInsideRepository,
 } from "../start-local.mjs";
+
+test("uses the repository-local server config by default", () => {
+  assert.equal(DEFAULT_ENV_PATH.endsWith(join("server", ".env.local")), true);
+});
 
 test("parses only supported local environment values without executing shell syntax", () => {
   assert.deepEqual(parseLocalEnv([
@@ -27,15 +31,8 @@ test("parses only supported local environment values without executing shell syn
   );
 });
 
-test("recognizes paths inside the extension repository", () => {
-  const root = resolve("/tmp/example-extension");
-  assert.equal(pathIsInsideRepository(resolve(root, "server.env"), root), true);
-  assert.equal(pathIsInsideRepository(resolve(root, "server/server.env"), root), true);
-  assert.equal(pathIsInsideRepository(resolve(root, "../server.env"), root), false);
-});
-
-test("loads a private env file outside the repository", (context) => {
-  const directory = mkdtempSync(join(tmpdir(), "paramount-proxy-env-"));
+test("loads a private env file", (context) => {
+  const directory = mkdtempSync(join(tmpdir(), "engram-server-env-"));
   const envPath = join(directory, "server.env");
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   writeFileSync(envPath, "DEEPSEEK_API_KEY=sk-local-test\nPORT=9876\n", { mode: 0o600 });
@@ -49,7 +46,7 @@ test("loads a private env file outside the repository", (context) => {
 
 test("rejects an env file readable by other local users", (context) => {
   if (process.platform === "win32") return;
-  const directory = mkdtempSync(join(tmpdir(), "paramount-proxy-env-"));
+  const directory = mkdtempSync(join(tmpdir(), "engram-server-env-"));
   const envPath = join(directory, "server.env");
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   writeFileSync(envPath, "DEEPSEEK_API_KEY=sk-local-test\n", { mode: 0o644 });

@@ -12,7 +12,7 @@
 
   const sample = {
     ok: true,
-    version: "0.6.0",
+    version: "0.6.1",
     url: "https://www.youtube.com/watch?v=example",
     site: { id: "youtube", name: "YouTube" },
     capture: {

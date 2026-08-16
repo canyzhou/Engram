@@ -8,7 +8,11 @@
       this.cache = cache;
       this.localTranslator = null;
       this.preparePromise = null;
+      this.localGeneration = 0;
       this.queue = Promise.resolve();
+      this.latestPending = null;
+      this.latestRunning = false;
+      this.disposed = false;
       this.status = {
         engine: "local",
         state: "checking",
@@ -70,6 +74,7 @@
     }
 
     async prepareLocal() {
+      if (this.disposed) throw new Error(t("chromeLocalCannotTranslate"));
       if (this.localTranslator) return this.localTranslator;
       if (this.preparePromise) return this.preparePromise;
       if (!("Translator" in globalThis)) {
@@ -77,6 +82,7 @@
       }
 
       this.setStatus({ state: "downloading", progress: 0, message: t("preparingLanguagePack", 0) });
+      const generation = this.localGeneration;
       this.preparePromise = Translator.create({
         sourceLanguage: "en",
         targetLanguage: "zh",
@@ -93,19 +99,46 @@
           });
         },
       }).then((translator) => {
+        if (generation !== this.localGeneration || this.disposed) {
+          translator.destroy?.();
+          const error = new Error("Translator session was released");
+          error.name = "AbortError";
+          throw error;
+        }
         this.localTranslator = translator;
         this.setStatus({ state: "ready", progress: 1, message: t("chromeLocalReady") });
         return translator;
       }).catch((error) => {
-        this.preparePromise = null;
-        this.setStatus({ state: "error", message: error?.message || t("languagePackFailed") });
+        if (generation === this.localGeneration) this.preparePromise = null;
+        if (error?.name !== "AbortError") {
+          this.setStatus({ state: "error", message: error?.message || t("languagePackFailed") });
+        }
         throw error;
       });
 
       return this.preparePromise;
     }
 
+    releaseLocal() {
+      this.localGeneration += 1;
+      const translator = this.localTranslator;
+      this.localTranslator = null;
+      this.preparePromise = null;
+      translator?.destroy?.();
+    }
+
+    dispose() {
+      if (this.disposed) return;
+      this.disposed = true;
+      if (this.latestPending) {
+        this.latestPending.resolve("");
+        this.latestPending = null;
+      }
+      this.releaseLocal();
+    }
+
     translate(text, settings, options = {}) {
+      if (this.disposed) return Promise.reject(new Error(t("chromeLocalCannotTranslate")));
       const cleanText = PST.normalizeSubtitle(text);
       if (!cleanText) return Promise.resolve("");
       const task = () => this.translateNow(cleanText, settings, options);
@@ -117,7 +150,43 @@
       return result;
     }
 
+    translateLatest(text, settings, options = {}) {
+      if (settings.engine === "deepseek") return this.translate(text, settings, options);
+      if (this.disposed) return Promise.reject(new Error(t("chromeLocalCannotTranslate")));
+      const cleanText = PST.normalizeSubtitle(text);
+      if (!cleanText) return Promise.resolve("");
+
+      return new Promise((resolve, reject) => {
+        if (this.latestPending) this.latestPending.resolve("");
+        this.latestPending = {
+          resolve,
+          reject,
+          task: () => this.translateNow(cleanText, settings, options),
+        };
+        this.drainLatest();
+      });
+    }
+
+    async drainLatest() {
+      if (this.latestRunning) return;
+      this.latestRunning = true;
+      try {
+        while (this.latestPending && !this.disposed) {
+          const request = this.latestPending;
+          this.latestPending = null;
+          try {
+            request.resolve(await request.task());
+          } catch (error) {
+            request.reject(error);
+          }
+        }
+      } finally {
+        this.latestRunning = false;
+      }
+    }
+
     async translateNow(text, settings, options) {
+      if (this.disposed) throw new Error(t("chromeLocalCannotTranslate"));
       const engine = settings.engine || "local";
       const source = settings.sourceLanguage || "en";
       const target = settings.targetLanguage || "zh";

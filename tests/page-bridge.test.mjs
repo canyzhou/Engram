@@ -109,6 +109,7 @@ const createBridge = (tracks, {
     globalThis: null,
     location: { href: pageUrl.href, origin: pageUrl.origin, hostname: pageUrl.hostname },
     setInterval: () => 1,
+    setTimeout: () => 1,
     window,
   });
   context.globalThis = context;
@@ -119,9 +120,63 @@ const createBridge = (tracks, {
     type: "SET_SUBTITLE_CAPTURE",
     detail,
   });
+  const probe = () => window.postMessage({
+    source: "paramount-subtitle-content",
+    type: "BRIDGE_PROBE",
+  });
 
-  return { configure, messages, requests, video };
+  return {
+    configure,
+    messages,
+    onMessage: (listener) => windowTarget.addEventListener("message", listener),
+    probe,
+    requests,
+    video,
+  };
 };
+
+test("keeps bridge readiness separate from capture configuration", () => {
+  const bridge = createBridge([]);
+  const initialReadyCount = bridge.messages.filter((message) => message.type === "BRIDGE_READY").length;
+
+  bridge.configure({ enabled: true, hide: true, sourceLanguage: "en" });
+  bridge.configure({ enabled: false, hide: false, sourceLanguage: "en" });
+  assert.equal(
+    bridge.messages.filter((message) => message.type === "BRIDGE_READY").length,
+    initialReadyCount,
+  );
+
+  bridge.probe();
+  assert.equal(
+    bridge.messages.filter((message) => message.type === "BRIDGE_READY").length,
+    initialReadyCount + 1,
+  );
+});
+
+test("settles the ready and configure handshake without a message loop", () => {
+  const bridge = createBridge([]);
+  let bridgeReady = false;
+  let configureCount = 0;
+  bridge.onMessage((event) => {
+    if (
+      event.data?.source !== "paramount-subtitle-page-bridge"
+      || event.data.type !== "BRIDGE_READY"
+      || bridgeReady
+    ) return;
+    bridgeReady = true;
+    configureCount += 1;
+    bridge.configure({ enabled: true, hide: true, sourceLanguage: "en" });
+  });
+
+  bridge.probe();
+
+  assert.equal(bridgeReady, true);
+  assert.equal(configureCount, 1);
+  assert.equal(
+    bridge.messages.filter((message) => message.type === "SET_SUBTITLE_CAPTURE").length,
+    1,
+  );
+});
 
 test("activates an Off English subtitle track in hidden mode and restores Off", () => {
   const english = new FakeTrack({ language: "en-US", label: "English (U.S.)" });

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Engram · 学习模式</title>
+    <link rel="stylesheet" href="learning-mode.css">
+  </head>
+  <body>
+    <main class="learning-shell" data-state="loading">
+      <header class="topbar">
+        <button class="icon-button back-button" id="back-button" type="button" aria-label="返回">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div class="video-heading">
+          <h1 id="video-title">正在连接视频…</h1>
+          <p id="video-author">Engram 学习模式</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="lesson-progress"><strong id="lesson-progress">0</strong> / 3</span>
+          <label class="level-control" for="learner-level">
+            <span>我的水平</span>
+            <select id="learner-level" aria-label="我的英语水平">
+              <option>A2</option><option selected>B1</option><option>B2</option><option>C1</option><option>C2</option>
+            </select>
+          </label>
+          <button class="icon-button" id="open-source" type="button" aria-label="在 YouTube 中打开">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <section class="media-column" aria-label="视频学习播放器">
+          <div class="player-frame" id="player-frame">
+            <img class="player-poster" id="player-poster" src="assets/learning-mode-poster.png" alt="山谷公路视频封面">
+            <iframe id="youtube-player" title="YouTube 视频播放器" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen hidden></iframe>
+            <div class="player-error" id="player-error" hidden>
+              <p>此视频暂时无法在学习页播放。</p>
+              <button type="button" data-open-source>返回 YouTube 观看</button>
+            </div>
+            <button class="center-play" id="center-play" type="button" aria-label="播放视频">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5Z"/></svg>
+            </button>
+            <div class="player-controls" aria-label="播放器控制">
+              <input id="player-progress" type="range" min="0" max="100" value="0" step="0.1" aria-label="视频进度">
+              <div class="player-controls-row">
+                <button class="control-button" id="play-toggle" type="button" aria-label="播放">
+                  <svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5Z"/></svg>
+                  <svg class="pause-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7v10M15 7v10"/></svg>
+                </button>
+                <button class="control-button" id="previous-cue" type="button" aria-label="上一句">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6v12M18 7l-8 5 8 5Z"/></svg>
+                </button>
+                <button class="control-button" id="next-cue" type="button" aria-label="下一句">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6v12M6 7l8 5-8 5Z"/></svg>
+                </button>
+                <span class="time-display"><span id="current-time">0:00</span> / <span id="duration">0:00</span></span>
+                <span class="control-spacer"></span>
+                <button class="control-button" id="loop-toggle" type="button" aria-pressed="false" aria-label="单句循环">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h9a3 3 0 0 1 3 3v1M17 5l2 2-2 2M17 17H8a3 3 0 0 1-3-3v-1M7 19l-2-2 2-2"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="cue-rail-section">
+            <div class="current-sentence" id="current-sentence">
+              <span>当前句</span>
+              <p>字幕准备好后，会在这里跟随播放。</p>
+            </div>
+            <div class="cue-rail" id="cue-rail" aria-label="字幕片段"></div>
+          </div>
+        </section>
+
+        <aside class="learning-panel" aria-label="学习区域">
+          <nav class="tabs" role="tablist" aria-label="学习工具">
+            <button id="tab-analysis" type="button" role="tab" aria-selected="true" aria-controls="panel-analysis" data-tab="analysis">材料分析</button>
+            <button id="tab-transcript" type="button" role="tab" aria-selected="false" aria-controls="panel-transcript" data-tab="transcript">字幕</button>
+            <button id="tab-discussion" type="button" role="tab" aria-selected="false" aria-controls="panel-discussion" data-tab="discussion">讨论</button>
+          </nav>
+
+          <section class="tab-panel analysis-panel" id="panel-analysis" role="tabpanel" aria-labelledby="tab-analysis">
+            <div class="analysis-loading" id="analysis-loading">
+              <span class="loading-line loading-line--title"></span>
+              <span class="loading-line"></span>
+              <span class="loading-line loading-line--button"></span>
+              <p>正在分析字幕与学习价值…</p>
+            </div>
+            <div class="analysis-error" id="analysis-error" hidden>
+              <h2>字幕已经准备好</h2>
+              <p id="analysis-error-message">材料分析暂时不可用，你仍然可以先从字幕开始。</p>
+              <div class="error-actions">
+                <button class="primary-button" id="retry-analysis" type="button">重试分析</button>
+                <button class="text-button" type="button" data-switch-tab="transcript">先看字幕</button>
+              </div>
+            </div>
+            <div class="analysis-content" id="analysis-content" hidden>
+              <h2>这段视频适合你</h2>
+              <div class="level-summary">
+                <span>材料 <strong id="material-level">B2</strong></span>
+                <i></i>
+                <span>你的水平 <strong id="analysis-learner-level">B1</strong></span>
+              </div>
+              <p class="fit-verdict" id="fit-verdict">有挑战，但适合精学</p>
+              <button class="primary-button start-learning" id="start-learning" type="button">
+                <span id="start-label">开始 12 分钟学习</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <dl class="difficulty-strip">
+                <div><dt>词汇</dt><dd id="vocabulary-level">B2</dd></div>
+                <div><dt>语速</dt><dd id="speech-level">B1+</dd></div>
+                <div><dt>句法</dt><dd id="syntax-level">B2</dd></div>
+              </dl>
+              <section class="expression-section">
+                <h3>最值得带走</h3>
+                <div class="expression-list" id="expression-list"></div>
+              </section>
+              <section class="difficulty-timeline-section">
+                <h3>难度时间轴</h3>
+                <div class="difficulty-timeline" id="difficulty-timeline" aria-label="视频难度时间轴"></div>
+                <p id="recommended-range">推荐精学 0:00–0:00</p>
+              </section>
+            </div>
+          </section>
+
+          <section class="tab-panel transcript-panel" id="panel-transcript" role="tabpanel" aria-labelledby="tab-transcript" hidden>
+            <div class="transcript-toolbar">
+              <label class="search-field">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+                <input id="transcript-search" type="search" placeholder="搜索字幕" aria-label="搜索字幕">
+              </label>
+              <label class="follow-control"><input id="auto-follow" type="checkbox" checked> 自动跟随</label>
+            </div>
+            <p class="transcript-status" id="transcript-status"></p>
+            <div class="transcript-list" id="transcript-list"></div>
+          </section>
+
+          <section class="tab-panel discussion-panel" id="panel-discussion" role="tabpanel" aria-labelledby="tab-discussion" hidden>
+            <div class="discussion-mode" role="group" aria-label="讨论模式">
+              <button type="button" data-discussion-mode="source" aria-pressed="true">基于材料</button>
+              <button type="button" data-discussion-mode="advanced" aria-pressed="false">进阶讨论</button>
+            </div>
+            <div class="discussion-messages" id="discussion-messages" aria-live="polite"></div>
+            <div class="discussion-empty" id="discussion-empty">
+              <h2>把刚才的输入变成自己的表达</h2>
+              <p>AI 会一次问一个问题，并用时间戳引用视频内容。</p>
+              <button class="primary-button" id="start-discussion" type="button">开始讨论</button>
+            </div>
+            <form class="composer" id="discussion-form" hidden>
+              <div class="composer-actions">
+                <button class="hint-button" id="request-hint" type="button">给我提示</button>
+              </div>
+              <label for="discussion-input" class="sr-only">输入你的回答</label>
+              <textarea id="discussion-input" rows="3" maxlength="1200" placeholder="用英文回答…"></textarea>
+              <button class="send-button" type="submit" aria-label="发送回答">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z"/><path d="m12 13 7-8"/></svg>
+              </button>
+            </form>
+          </section>
+        </aside>
+      </section>
+    </main>
+    <script src="src/namespace.js"></script>
+    <script src="src/learning-mode-core.js"></script>
+    <script src="learning-mode.js"></script>
+  </body>
+</html>

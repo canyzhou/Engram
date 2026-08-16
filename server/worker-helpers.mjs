@@ -1,4 +1,9 @@
-const RATE_LIMITED_PATHS = new Set(["/v1/translate", "/v1/word-lookup"]);
+const RATE_LIMITED_PATHS = new Set([
+  "/v1/translate",
+  "/v1/word-lookup",
+  "/v1/lesson/analyze",
+  "/v1/lesson/discuss",
+]);
 
 export const shouldApplyEdgeRateLimit = (request) => (
   request.method === "POST" && RATE_LIMITED_PATHS.has(new URL(request.url).pathname)

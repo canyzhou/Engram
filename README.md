@@ -1,8 +1,8 @@
-# 语痕 · 沉浸式英语学习
+# Engram · 沉浸式英语学习
 
 > 让内容成为英语课。
 
-语痕是一款面向真实语境的英语学习助手，目标是把你本来就在看的视频、文章和网页内容，转化为可理解、可积累、可复习的个性化英语学习资料。
+Engram 是一款面向真实语境的英语学习助手，目标是把你本来就在看的视频、文章和网页内容，转化为可理解、可积累、可复习的个性化英语学习资料。
 
 目前支持 YouTube 与 Paramount+ 视频学习：扩展从播放器的字幕轨、字幕 DOM 或网络字幕时间轴中获取英文字幕，使用 Chrome 本地 Translator API、DeepSeek 或 Google 翻译为简体中文，并提供难词提示、语境查词和生词积累。双语字幕是理解入口，而不是产品终点。
 
@@ -30,6 +30,19 @@
 - 英文逐词 hover：自动暂停视频，结合当前字幕与最近 4 句前文识别原形、短语和语境中文义，并可加入生词
 - 单词本：搜索、排序、朗读、删除撤销、清空确认和 CSV 导出
 - 调试页和本地视觉预览页
+- YouTube 学习模式：从弹窗复制当前 YouTube 视频到新的学习标签页，保留左侧原生播放器，右侧提供 5 秒可读的材料分析、可跳转字幕和基于材料/进阶 AI 文字讨论
+
+### 学习模式
+
+在已连接的 YouTube 视频上打开扩展弹窗，点击“打开学习模式”。扩展会新开一个带学习布局的 YouTube 页面，直接复用原生播放器，避免嵌入限制并保留账号、播放权限和 YouTube 控件。学习区读取当前视频的字幕时间轴，并默认展示：
+
+- 材料与用户 CEFR 水平、适配结论和建议学习时长；
+- 三个能够回到原字幕的高价值表达；
+- 词汇、语速、句法难度与推荐精学区间；
+- 可搜索、自动跟随、点击跳转和单句循环的字幕列表；
+- 基于材料与进阶迁移两种 AI 文字讨论，回答中的引用可回到视频时间点。
+
+材料分析和讨论通过自建代理调用 DeepSeek。模型只能返回固定结构，客户端和服务端都会验证表达与引用确实存在于字幕中。AI 不可用时，材料分析自动降级为明确标注的本地初步分析，字幕学习仍可正常使用；讨论会提示代理不可用。可用 `learning-mode.html?preview=1` 在不加载扩展 API、不开启后端的情况下预览完整交互。
 
 ## 安装
 
@@ -59,13 +72,11 @@ DeepSeek 模式使用 `deepseek-v4-flash`，关闭深度思考以降低延迟。
 
 #### 启动本地代理
 
-把 AK 放在仓库外的私有 env 文件中。默认位置是 `~/.config/paramount-subtitle-translator/server.env`：
+复制仓库内提供的示例配置，创建仅供本机使用的 `server/.env.local`：
 
 ```bash
-mkdir -p ~/.config/paramount-subtitle-translator
-chmod 700 ~/.config/paramount-subtitle-translator
-touch ~/.config/paramount-subtitle-translator/server.env
-chmod 600 ~/.config/paramount-subtitle-translator/server.env
+cp server/.env.example server/.env.local
+chmod 600 server/.env.local
 ```
 
 编辑这个文件：
@@ -79,18 +90,28 @@ PORT=8787
 然后启动：
 
 ```bash
-npm --prefix server run start:local
+npm start
 ```
 
-如需使用其他路径，可执行 `npm --prefix server run start:local -- /绝对路径/server.env`，或设置 `PST_SERVER_ENV_FILE`。启动脚本不会执行 env 文件中的 shell 内容，只接受服务所需的变量；它还会拒绝仓库内的 env 文件和可被其他本机用户读取的文件。
+`server/.env.local` 已被 Git 忽略，`server/.env.example` 会随代码提交，方便其他开发者快速开始。如需使用其他路径，可执行 `npm --prefix server run start:local -- /绝对路径/server.env`，或设置 `ENGRAM_SERVER_ENV_FILE`（旧的 `PST_SERVER_ENV_FILE` 仍兼容）。启动脚本不会执行 env 文件中的 shell 内容，只接受服务所需的变量，并会拒绝可被其他本机用户读取的配置文件。
 
-真实 AK 不要保存在本仓库内，即使文件被 `.gitignore` 忽略也不安全：仓库根目录同时是 Chrome 扩展目录，额外文件仍可能随未打包扩展或 CRX 一起分发。服务默认只监听 `127.0.0.1:8787`，扩展默认调用：
+真实 AK 只能写入已忽略的 `server/.env.local`，不要写入 `.env.example`、源码或任何提交到 Git 的文件。服务默认只监听 `127.0.0.1:8787`，扩展默认调用：
 
 - `POST /v1/translate`：字幕翻译
 - `POST /v1/word-lookup`：结合字幕语境查词
 - `GET /health`：健康检查
 
 服务不接受来自扩展的模型名、system prompt 或生成参数，且内置字幕长度、请求体、并发和每分钟速率限制，避免成为任意 LLM 转发器。
+
+#### 构建 Chrome 扩展发布产物
+
+不要直接把整个仓库交给 Chrome 打包；`.gitignore` 不控制扩展包内容。使用白名单构建：
+
+```bash
+npm run build:extension
+```
+
+产物位于 `dist/extension/`，只包含扩展运行所需文件，不包含 `server/`、测试、文档或任何 env 文件。开发者模式应加载该目录；发布到 Chrome Web Store 时也只压缩该目录中的内容。
 
 #### 部署到公网
 

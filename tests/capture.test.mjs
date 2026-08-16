@@ -4,9 +4,11 @@ import test from "node:test";
 import vm from "node:vm";
 
 const source = readFileSync(new URL("../src/capture.js", import.meta.url), "utf8");
+const bridgeWindow = {};
 
 const context = vm.createContext({
   Array,
+  CustomEvent: class {},
   Date,
   EventTarget,
   JSON,
@@ -17,8 +19,11 @@ const context = vm.createContext({
   Set,
   String,
   WeakMap,
+  window: bridgeWindow,
   globalThis: null,
   ParamountSubtitles: {
+    BRIDGE_SOURCE: "paramount-subtitle-page-bridge",
+    CONTENT_SOURCE: "paramount-subtitle-content",
     hash: (value) => String(value),
     normalizeSubtitle: (value) => String(value || "").replace(/\s+/g, " ").trim(),
     parseTime: (value) => Number(value) || 0,
@@ -26,6 +31,27 @@ const context = vm.createContext({
 });
 context.globalThis = context;
 vm.runInContext(source, context);
+
+test("configures capture only once when bridge readiness is repeated", () => {
+  const capture = new context.ParamountSubtitles.CaptureCoordinator();
+  let configureCount = 0;
+  capture.configure = () => { configureCount += 1; };
+  capture.dispatchEvent = () => true;
+  const ready = {
+    source: bridgeWindow,
+    data: {
+      source: "paramount-subtitle-page-bridge",
+      type: "BRIDGE_READY",
+      detail: { href: "https://www.youtube.com/watch?v=test" },
+    },
+  };
+
+  capture.onBridgeMessage(ready);
+  capture.onBridgeMessage(ready);
+
+  assert.equal(configureCount, 1);
+  assert.equal(capture.bridgeReady, true);
+});
 
 test("parses YouTube JSON3 captions into a video timeline", () => {
   const cues = context.ParamountSubtitles.parseYouTubeJson3(JSON.stringify({
@@ -135,5 +161,94 @@ test("splits multiple complete sentences while retaining unfinished trailing con
   assert.deepEqual([...result].map(({ text }) => text), [
     "Right.",
     "It's a bit embarrassing to admit, but it is true.",
+  ]);
+});
+
+test("uses following words to distinguish abbreviations from sentence endings", () => {
+  const split = context.ParamountSubtitles.splitCompleteSentences;
+
+  assert.deepEqual([...split("We moved to Acme Inc. headquarters yesterday.").complete], [
+    "We moved to Acme Inc. headquarters yesterday.",
+  ]);
+  assert.deepEqual([...split("Episode No. 5 starts now.").complete], [
+    "Episode No. 5 starts now.",
+  ]);
+  assert.deepEqual([...split("Ask J. Then leave.").complete], [
+    "Ask J.",
+    "Then leave.",
+  ]);
+});
+
+test("keeps a lowercase continuation after an ellipsis in the same sentence", () => {
+  const result = context.ParamountSubtitles.splitCompleteSentences("Wait... what happened?");
+
+  assert.deepEqual([...result.complete], ["Wait... what happened?"]);
+});
+
+test("keeps punctuation revisions without duplicating automatic captions", () => {
+  const result = context.ParamountSubtitles.aggregateYouTubeAutoCues([
+    { start: 0, end: 1, text: "hello world" },
+    { start: 0.5, end: 1.5, text: "Hello, world." },
+  ]);
+
+  assert.deepEqual([...result].map(({ text }) => text), ["hello world."]);
+});
+
+test("resegments a complete authored YouTube track across cue boundaries", () => {
+  const capture = new context.ParamountSubtitles.CaptureCoordinator();
+  const result = capture.timeline.ingest({
+    body: JSON.stringify({
+      events: [
+        { tStartMs: 0, dDurationMs: 1_000, segs: [{ utf8: "We moved to Acme Inc." }] },
+        { tStartMs: 1_000, dDurationMs: 1_000, segs: [{ utf8: "headquarters yesterday." }] },
+        { tStartMs: 3_000, dDurationMs: 1_000, segs: [{ utf8: "Then we left." }] },
+      ],
+    }),
+    captionKind: "subtitles",
+    contentType: "application/json",
+    mediaKey: "youtube:test-video",
+    url: "https://www.youtube.com/api/timedtext?v=test-video&fmt=json3",
+  });
+
+  assert.equal(result.format, "YouTube Captions");
+  assert.equal(capture.timeline.preferredSource, "YouTube Captions");
+  assert.deepEqual([...capture.timeline.cues.values()].map(({ text }) => text), [
+    "We moved to Acme Inc. headquarters yesterday.",
+    "Then we left.",
+  ]);
+});
+
+test("ignores TextTrack fragments after the complete YouTube timeline is ready", () => {
+  const capture = new context.ParamountSubtitles.CaptureCoordinator();
+  let accepted = 0;
+  capture.timeline.preferredSource = "YouTube Captions";
+  capture.accept = () => { accepted += 1; };
+
+  capture.onBridgeMessage({
+    source: bridgeWindow,
+    data: {
+      source: "paramount-subtitle-page-bridge",
+      type: "TEXT_TRACK_CUE",
+      detail: { text: "an incomplete fragment" },
+    },
+  });
+
+  assert.equal(accepted, 0);
+});
+
+test("exports a sorted, bounded learning context from the captured timeline", () => {
+  const capture = new context.ParamountSubtitles.CaptureCoordinator();
+  capture.dom.largestVideo = () => ({ video: { currentTime: 12, duration: 90, paused: false } });
+  capture.timeline.cues.set("later", { start: 20, end: 23, text: "Later cue", source: "YouTube Captions" });
+  capture.timeline.cues.set("first", { start: 5, end: 8, text: "First cue", source: "YouTube Captions" });
+
+  const learning = capture.learningContext();
+  assert.equal(learning.completeTimeline, true);
+  assert.equal(learning.currentTime, 12);
+  assert.equal(learning.duration, 90);
+  assert.equal(learning.paused, false);
+  assert.deepEqual([...learning.cues].map(({ start, text }) => ({ start, text })), [
+    { start: 5, text: "First cue" },
+    { start: 20, text: "Later cue" },
   ]);
 });

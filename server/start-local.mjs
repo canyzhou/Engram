@@ -1,17 +1,17 @@
 import { spawn } from "node:child_process";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const modulePath = fileURLToPath(import.meta.url);
 const serverDirectory = dirname(modulePath);
-const repositoryRoot = resolve(serverDirectory, "..");
 const configRoot = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
 
-export const DEFAULT_ENV_PATH = join(
+export const DEFAULT_ENV_PATH = join(serverDirectory, ".env.local");
+export const LEGACY_ENV_PATH = join(
   configRoot,
-  "paramount-subtitle-translator",
+  "Engram",
   "server.env",
 );
 
@@ -59,24 +59,21 @@ export const parseLocalEnv = (source) => {
   return parsed;
 };
 
-export const pathIsInsideRepository = (candidate, root = repositoryRoot) => {
-  const pathFromRoot = relative(root, candidate);
-  return pathFromRoot === ""
-    || (!pathFromRoot.startsWith(`..${sep}`) && pathFromRoot !== ".." && !isAbsolute(pathFromRoot));
-};
-
 export const loadLocalEnvironment = (requestedPath) => {
-  const configuredPath = resolve(requestedPath || process.env.PST_SERVER_ENV_FILE || DEFAULT_ENV_PATH);
+  const configuredPath = resolve(
+    requestedPath
+      || process.env.ENGRAM_SERVER_ENV_FILE
+      || process.env.PST_SERVER_ENV_FILE
+      || (existsSync(DEFAULT_ENV_PATH) || !existsSync(LEGACY_ENV_PATH)
+        ? DEFAULT_ENV_PATH
+        : LEGACY_ENV_PATH),
+  );
   let envPath;
   try {
     envPath = realpathSync(configuredPath);
   } catch {
     throw new Error(`找不到本地 env 文件：${configuredPath}`);
   }
-  if (pathIsInsideRepository(envPath)) {
-    throw new Error("本地 env 文件必须放在仓库目录之外，避免随扩展一起分发");
-  }
-
   const file = statSync(envPath);
   if (!file.isFile()) throw new Error(`env 路径不是普通文件：${envPath}`);
   if (process.platform !== "win32" && (file.mode & 0o077) !== 0) {

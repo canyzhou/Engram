@@ -45,10 +45,12 @@
     openDebug: document.querySelector("#open-debug"),
     settingsShortcut: document.querySelector("#settings-shortcut"),
     styleSettings: document.querySelector("#style-settings"),
+    openLearningMode: document.querySelector("#open-learning-mode"),
   };
 
   let settings = { ...DEFAULTS };
   let activeTabId = null;
+  let activeTabUrl = "";
   const hasExtensionApi = Boolean(globalThis.chrome?.runtime?.id && chrome.storage?.sync);
   const t = (key, substitutions) => PST.t(key, substitutions);
   const LEARNING_LEVEL_KEYS = Object.freeze({
@@ -125,15 +127,18 @@
     if (!hasExtensionApi) {
       elements.connection.dataset.state = "connected";
       elements.connectionText.textContent = t("previewConnection");
+      elements.openLearningMode.disabled = false;
       return;
     }
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTabId = tab?.id || null;
+    activeTabUrl = tab?.url || "";
     let site = { id: "unknown", name: "Video" };
     try { site = PST.detectVideoSite(new URL(tab?.url || "").hostname); } catch {}
     if (site.id === "unknown") {
       elements.connection.dataset.state = "disconnected";
       elements.connectionText.textContent = t("openSupportedVideo");
+      elements.openLearningMode.disabled = true;
       return;
     }
     const response = await sendToTab({ type: "GET_STATUS" });
@@ -141,6 +146,7 @@
     elements.connectionText.textContent = response?.ok
       ? t("connectedVideo", [response.site?.name || site.name, response.capture?.source || t("waitingForSubtitles")])
       : t("waitingForVideoPlayer", site.name);
+    elements.openLearningMode.disabled = !(response?.ok && (response.site?.id || site.id) === "youtube");
   };
 
   elements.uiLanguage.addEventListener("change", async () => {
@@ -186,6 +192,25 @@
   elements.openDebug.addEventListener("click", () => {
     if (hasExtensionApi) chrome.tabs.create({ url: chrome.runtime.getURL("debug.html") });
     else window.open("debug.html", "_blank");
+  });
+  elements.openLearningMode.addEventListener("click", async () => {
+    if (!hasExtensionApi) {
+      window.open("learning-mode.html?preview=1", "_blank");
+      return;
+    }
+    const context = await sendToTab({ type: "GET_LEARNING_CONTEXT" });
+    const sourceUrl = context?.video?.url || activeTabUrl;
+    try {
+      const url = new URL(sourceUrl);
+      url.searchParams.set("engram_learning", "1");
+      const currentTime = Math.floor(Number(context?.video?.currentTime) || 0);
+      if (currentTime > 0) url.searchParams.set("t", `${currentTime}s`);
+      await chrome.tabs.create({ url: url.toString() });
+    } catch {
+      const videoId = context?.video?.id;
+      if (!videoId) return;
+      await chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&engram_learning=1` });
+    }
   });
 
   storageGet().then((stored) => {
