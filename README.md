@@ -93,13 +93,31 @@ PORT=8787
 npm start
 ```
 
-`npm start` 是一次性启动，不会监听代码变化。开发后端时请改用：
+`npm start` 是一次性启动，不会监听代码变化。只开发后端时请改用：
+
+```bash
+npm run dev:server
+```
+
+该命令会在 `server/*.mjs` 发生变化时自动重启代理。这里是自动重启进程，不是保留进程内状态的 HMR；对当前无状态 HTTP 代理效果等同于热更新。
+
+#### Chrome 扩展自动重载开发
+
+只开发扩展时运行：
+
+```bash
+npm run dev:extension
+```
+
+第一次运行后，在 `chrome://extensions/` 开启开发者模式，点击“加载已解压的扩展程序”，选择 `dist/extension/`。如果此前加载的是仓库根目录，请先停用或移除那一份，避免两份扩展同时向页面注入内容脚本；目录变化也会让未固定 key 的已解压扩展获得不同 ID，因此配置过 `ALLOWED_ORIGINS` 时要同步更新其中的扩展 ID。之后修改扩展白名单内的 JS、CSS、HTML、manifest、图标或本地化文件时，开发脚本会自动重建产物，调用 Chrome 的扩展重载能力，并刷新已经打开的 YouTube / Paramount+ 页面以及 dashboard、debug、设置等扩展页面，不需要再手动点击扩展卡片上的刷新按钮。开发重载服务只监听 `127.0.0.1:8790`；如果端口冲突，可通过 `ENGRAM_EXTENSION_RELOAD_PORT` 指定其他端口后重新加载一次 `dist/extension/`。
+
+同时开发后端和扩展时直接运行：
 
 ```bash
 npm run dev
 ```
 
-该命令会在 `server/*.mjs` 发生变化时自动重启代理；扩展前端文件仍需在 `chrome://extensions/` 中重新加载扩展并刷新视频页。
+这会同时启动后端监听和扩展自动重载。Chrome 仍要求第一次手动加载开发目录；扩展 service worker 或 manifest 变化会完整重载扩展，内容脚本变化还会刷新目标视频页，因此这属于 live reload，并不保留页面内的运行状态。`npm run build:extension` 生成的发布产物不会包含开发重载脚本或额外的本机端口权限。
 
 `server/.env.local` 已被 Git 忽略，`server/.env.example` 会随代码提交，方便其他开发者快速开始。如需使用其他路径，可执行 `npm --prefix server run start:local -- /绝对路径/server.env`，或设置 `ENGRAM_SERVER_ENV_FILE`（旧的 `PST_SERVER_ENV_FILE` 仍兼容）。启动脚本不会执行 env 文件中的 shell 内容，只接受服务所需的变量，并会拒绝可被其他本机用户读取的配置文件。
 

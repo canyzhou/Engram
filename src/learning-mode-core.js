@@ -70,6 +70,34 @@
       : fallback;
   };
 
+  const MATERIAL_VERDICTS = new Set(["worth_intensive_study", "viewing_only", "not_suitable"]);
+  const ASSESSMENT_STATUSES = new Set(["complete", "pending", "failed"]);
+  const LEVEL_RANKS = new Map([
+    ["A1", 0], ["A2", 1], ["B1", 2], ["B1+", 2.5], ["B2", 3],
+    ["B2+", 3.5], ["C1", 4], ["C1+", 4.5], ["C2", 5],
+  ]);
+  const SUITABILITY_REASON_CODES = new Set([
+    "transcript_incomplete", "analysis_unavailable", "too_little_english", "mostly_non_speech",
+    "highly_repetitive", "fragmented_context", "low_semantic_density", "low_learning_yield",
+    "specialized_terse_language", "strong_coherent_spans", "useful_transferable_language",
+    "level_too_easy", "level_matched", "level_too_hard",
+  ]);
+
+  const deriveDifficultyFit = (materialLevel, learnerLevel) => {
+    const difference = LEVEL_RANKS.get(sanitizeLevel(materialLevel, "B1"))
+      - LEVEL_RANKS.get(sanitizeLevel(learnerLevel, "B1"));
+    if (difference <= -1) return "too_easy";
+    if (difference >= 1.5) return "too_hard";
+    return "matched";
+  };
+
+  const deriveFinalRecommendation = (materialVerdict, difficultyFit) => {
+    if (materialVerdict === "not_suitable" || difficultyFit === "unknown") return "not_recommended";
+    if (difficultyFit === "too_hard") return "not_recommended";
+    if (materialVerdict === "viewing_only" || difficultyFit === "too_easy") return "extensive_viewing";
+    return "intensive_study";
+  };
+
   const includesChinese = (value) => /[\u3400-\u9fff]/u.test(String(value || ""));
 
   const clipDiscussionQuote = (text, maximumWords = 9) => {
@@ -169,98 +197,50 @@
     };
   };
 
-  const createFallbackAnalysis = ({ cues = [], duration = 0, learnerLevel = "B1", videoTitle = "this video" } = {}) => {
+  const createFallbackAnalysis = ({ cues = [], duration = 0, learnerLevel = "B1" } = {}) => {
     const normalizedCues = normalizeCues(cues, duration || Number.POSITIVE_INFINITY);
-    if (normalizedCues.length < 3) throw new Error("字幕太少，暂时无法生成本地分析");
-    const stopwords = new Set(["about", "after", "again", "because", "before", "could", "every", "first", "from", "have", "into", "just", "really", "some", "that", "their", "there", "these", "they", "this", "those", "very", "what", "when", "where", "which", "while", "with", "would", "your"]);
-    const candidates = [];
-    const addCandidate = ({ expression, cue, category = "word", meaningZh = "", why = "" }) => {
-      const value = String(expression || "").trim();
-      if (!value || candidates.some((item) => item.expression.toLowerCase() === value.toLowerCase())) return;
-      candidates.push({ category, expression: value, meaningZh, why, timestamp: cue.start, sourceText: cue.text });
-    };
-    for (const cue of normalizedCues) {
-      const words = [...cue.text.matchAll(/[A-Za-z][A-Za-z'-]*/g)];
-      if (!words.length) continue;
-      for (const match of words) {
-        if (match[0].length < 5 || stopwords.has(match[0].toLowerCase())) continue;
-        addCandidate({ expression: match[0], cue });
-        if (candidates.length === 8) break;
-      }
-      if (candidates.length === 8) break;
-    }
-    for (const cue of normalizedCues) {
-      if (candidates.length >= 5) break;
-      const words = [...cue.text.matchAll(/[A-Za-z][A-Za-z'-]*/g)].slice(0, 5);
-      for (let size = Math.min(4, words.length); size >= 2 && candidates.length < 5; size -= 1) {
-        const start = words[0]?.index || 0;
-        const end = words[size - 1]?.index + words[size - 1]?.[0].length;
-        addCandidate({
-          expression: cue.text.slice(start, end),
-          cue,
-          category: "pattern",
-        });
-      }
-    }
-    if (candidates.length < 5) throw new Error("字幕太少，暂时无法生成本地分析");
-
-    const wordCounts = normalizedCues.map((cue) => (cue.text.match(/[A-Za-z][A-Za-z'-]*/g) || []).length);
-    const averageWords = wordCounts.reduce((sum, count) => sum + count, 0) / Math.max(1, wordCounts.length);
-    const materialLevel = averageWords >= 13 ? "B2" : averageWords >= 8 ? "B1+" : "B1";
-    const startCue = normalizedCues[Math.floor(normalizedCues.length * 0.25)] || normalizedCues[0];
-    const endCue = normalizedCues[Math.min(normalizedCues.length - 1, Math.floor(normalizedCues.length * 0.6))] || normalizedCues.at(-1);
-    const laterCue = normalizedCues[Math.min(normalizedCues.length - 1, Math.floor(normalizedCues.length * 0.8))] || normalizedCues.at(-1);
+    const fallbackCue = normalizedCues[0] || { start: 0, end: 0 };
     return {
       localFallback: true,
-      materialLevel,
-      vocabularyLevel: materialLevel,
-      speechLevel: "B1+",
-      syntaxLevel: materialLevel,
-      fitVerdict: "AI 未连接，先按本地难度精学",
-      fitReasons: [
-        `字幕平均每句约 ${Math.max(1, Math.round(averageWords))} 个词，难度与 ${learnerLevel} 学习者接近`,
-        "时间轴和学习项均来自当前已采集字幕，可直接定位练习",
-      ],
-      learningOutcomes: [
-        "掌握视频中的高信息量词汇和可复用句型",
-        "通过推荐片段进行听辨、跟读和复述",
-      ],
-      studyMinutes: 10,
-      recommendedRange: { start: startCue.start, end: endCue.end },
-      difficultRanges: [{ start: startCue.start, end: endCue.end }],
-      learningItems: candidates,
-      expressions: candidates,
-      timelineSegments: [
-        {
-          start: startCue.start,
-          end: Math.max(startCue.end, endCue.end),
-          timestamp: startCue.start,
-          level: materialLevel,
-          title: "核心精学片段",
-          analysis: "句子信息量较集中，适合逐句听辨和复述。",
-          focus: "先听关键词，再模仿语音并复述大意。",
-          sourceText: startCue.text,
+      materialLevel: null,
+      vocabularyLevel: null,
+      speechLevel: null,
+      syntaxLevel: null,
+      learnerLevel,
+      suitability: {
+        assessmentStatus: "failed",
+        basis: "general_english_from_transcript",
+        materialQuality: "unknown",
+        materialVerdict: "not_suitable",
+        difficultyMatch: { materialLevel: null, learnerLevel, difficultyFit: "unknown" },
+        finalRecommendation: "not_recommended",
+        confidence: "low",
+        reasonCodes: ["analysis_unavailable"],
+        summary: "分析未完成，当前不推荐使用这份材料生成课程。",
+        diagnostics: {
+          transcriptComplete: false,
+          usableWordCount: normalizedCues.reduce((sum, cue) => (
+            sum + (cue.text.match(/[A-Za-z][A-Za-z'-]*/g) || []).length
+          ), 0),
+          groundedLearningItemCount: 0,
         },
-        {
-          start: laterCue.start,
-          end: laterCue.end,
-          timestamp: laterCue.start,
-          level: materialLevel,
-          title: "后段巩固片段",
-          analysis: "用于检查前面学到的词汇和句型能否迁移到后文。",
-          focus: "关闭中文字幕复听，再用英文概括。",
-          sourceText: laterCue.text,
-        },
-      ],
+        bestSpans: [],
+      },
+      learningOutcomes: [],
+      studyMinutes: 0,
+      recommendedRange: { start: fallbackCue.start, end: fallbackCue.end },
+      difficultRanges: [],
+      learningItems: [],
+      expressions: [],
+      timelineSegments: [],
       coverage: {
         cueCount: normalizedCues.length,
         characterCount: normalizedCues.reduce((sum, cue) => sum + cue.text.length, 0),
-        start: normalizedCues[0].start,
-        end: normalizedCues.at(-1).end,
+        start: normalizedCues[0]?.start || 0,
+        end: normalizedCues.at(-1)?.end || 0,
         complete: false,
       },
-      discussionQuestions: createDiscussionQuestions(videoTitle, normalizedCues),
-      learnerLevel,
+      discussionQuestions: { source: [], advanced: [] },
     };
   };
 
@@ -341,27 +321,120 @@
         : { start: fallbackCue.start, end: fallbackCue.end };
     }
     const coverageMatches = Number(input.coverage?.cueCount) === normalizedCues.length;
-    const fitReasons = sanitizeTextList(input.fitReasons);
-    const learningOutcomes = sanitizeTextList(input.learningOutcomes, { requireChinese: true });
+    const sourceSuitability = input.suitability && typeof input.suitability === "object"
+      ? input.suitability
+      : {};
+    const assessmentStatus = ASSESSMENT_STATUSES.has(sourceSuitability.assessmentStatus)
+      ? sourceSuitability.assessmentStatus
+      : input.localFallback ? "failed" : "complete";
+    let materialVerdict = MATERIAL_VERDICTS.has(sourceSuitability.materialVerdict)
+      ? sourceSuitability.materialVerdict
+      : learningItems.length >= 5
+        ? "worth_intensive_study"
+        : learningItems.length >= 2 || timelineSegments.length > 0
+          ? "viewing_only"
+          : "not_suitable";
+    if (materialVerdict === "worth_intensive_study" && learningItems.length < 5) {
+      materialVerdict = learningItems.length >= 2 || timelineSegments.length > 0
+        ? "viewing_only"
+        : "not_suitable";
+    }
+    if (assessmentStatus !== "complete") materialVerdict = "not_suitable";
+    const normalizedLearnerLevel = sanitizeLevel(learnerLevel, "B1");
+    const materialLevel = input.materialLevel ? sanitizeLevel(input.materialLevel, "B2") : null;
+    let difficultyFit = materialVerdict === "not_suitable" || !materialLevel
+      ? "unknown"
+      : deriveDifficultyFit(materialLevel, normalizedLearnerLevel);
+    if (assessmentStatus !== "complete" || materialVerdict === "not_suitable") difficultyFit = "unknown";
+    const finalRecommendation = deriveFinalRecommendation(materialVerdict, difficultyFit);
+    const finalLearningItems = finalRecommendation === "intensive_study"
+      ? learningItems
+      : finalRecommendation === "extensive_viewing" ? learningItems.slice(0, 4) : [];
+    const finalTimelineSegments = finalRecommendation === "not_recommended"
+      ? []
+      : timelineSegments.slice(0, finalRecommendation === "extensive_viewing" ? 3 : 4);
+    const candidateLearningOutcomes = sanitizeTextList(input.learningOutcomes, { requireChinese: true });
+    const finalLearningOutcomes = finalRecommendation === "intensive_study" ? candidateLearningOutcomes : [];
+    const materialReasonCodes = (Array.isArray(sourceSuitability.reasonCodes) ? sourceSuitability.reasonCodes : [])
+      .map((value) => String(value || "").trim())
+      .filter((value, index, values) => SUITABILITY_REASON_CODES.has(value) && values.indexOf(value) === index)
+      .filter((value) => !value.startsWith("level_"))
+      .slice(0, 2);
+    const difficultyReasonCode = difficultyFit === "too_easy"
+      ? "level_too_easy"
+      : difficultyFit === "matched"
+        ? "level_matched"
+        : difficultyFit === "too_hard" ? "level_too_hard" : "";
+    const reasonCodes = [...materialReasonCodes, difficultyReasonCode].filter(Boolean).slice(0, 3);
+    const sourceSummary = String(sourceSuitability.summary || "").replace(/\s+/g, " ").trim().slice(0, 120);
+    const summary = assessmentStatus === "pending"
+      ? "字幕仍在收集，当前不推荐生成课程。"
+      : assessmentStatus === "failed"
+        ? includesChinese(sourceSummary)
+          ? sourceSummary
+          : "分析未完成，当前不推荐使用这份材料生成课程。"
+        : materialVerdict === "worth_intensive_study" && difficultyFit === "too_easy"
+        ? "材料本身有学习价值，但对你偏简单，不必投入时间反复精学。"
+        : difficultyFit === "too_hard"
+          ? "材料本身有学习价值，但目前对你偏难，精学成本较高。"
+          : includesChinese(sourceSummary)
+            ? sourceSummary
+          : finalRecommendation === "intensive_study"
+            ? "材料语境连续、信息充足，难度与你匹配，推荐精学。"
+            : finalRecommendation === "extensive_viewing"
+              ? "材料可以作为英语输入，但不值得投入时间反复精学。"
+              : "当前字幕不足以支撑可靠的英语学习。";
+    const numericDiagnostic = (key) => Math.max(0, Number(sourceSuitability.diagnostics?.[key]) || 0);
+    const diagnostics = {
+      transcriptComplete: Boolean(sourceSuitability.diagnostics?.transcriptComplete ?? input.coverage?.complete),
+      usableWordCount: numericDiagnostic("usableWordCount"),
+      usableWordsPerMinute: numericDiagnostic("usableWordsPerMinute"),
+      nonSpeechRatio: clamp(numericDiagnostic("nonSpeechRatio"), 0, 1),
+      repetitionRatio: clamp(numericDiagnostic("repetitionRatio"), 0, 1),
+      fragmentRatio: clamp(numericDiagnostic("fragmentRatio"), 0, 1),
+      coherentSpanCount: numericDiagnostic("coherentSpanCount"),
+      coherentSpanSeconds: numericDiagnostic("coherentSpanSeconds"),
+      groundedLearningItemCount: finalLearningItems.length,
+    };
+    const discussionQuestions = finalRecommendation === "intensive_study"
+      ? sanitizeDiscussionQuestions(input.discussionQuestions, videoTitle, normalizedCues)
+      : { source: [], advanced: [] };
 
     return {
       localFallback: Boolean(input.localFallback),
-      materialLevel: sanitizeLevel(input.materialLevel, "B2"),
-      learnerLevel: sanitizeLevel(learnerLevel, "B1"),
-      vocabularyLevel: sanitizeLevel(input.vocabularyLevel, "B2"),
-      speechLevel: sanitizeLevel(input.speechLevel, "B1+"),
-      syntaxLevel: sanitizeLevel(input.syntaxLevel, "B2"),
-      fitVerdict: String(input.fitVerdict || "有挑战，但适合精学").replace(/\s+/g, " ").trim().slice(0, 40),
-      fitReasons: fitReasons.length ? fitReasons : ["可结合完整字幕判断材料难度。"],
-      learningOutcomes: learningOutcomes.length
-        ? learningOutcomes
-        : ["结合字幕理解视频内容。", "从真实语境中积累可复用表达。"],
-      studyMinutes: clamp(Math.round(Number(input.studyMinutes) || 12), 3, 45),
+      materialLevel,
+      learnerLevel: normalizedLearnerLevel,
+      vocabularyLevel: input.vocabularyLevel ? sanitizeLevel(input.vocabularyLevel, "B2") : null,
+      speechLevel: input.speechLevel ? sanitizeLevel(input.speechLevel, "B1+") : null,
+      syntaxLevel: input.syntaxLevel ? sanitizeLevel(input.syntaxLevel, "B2") : null,
+      suitability: {
+        assessmentStatus,
+        basis: "general_english_from_transcript",
+        materialQuality: materialVerdict === "worth_intensive_study"
+          ? "strong"
+          : materialVerdict === "viewing_only" ? "segmental" : "weak",
+        materialVerdict,
+        difficultyMatch: { materialLevel, learnerLevel: normalizedLearnerLevel, difficultyFit },
+        finalRecommendation,
+        confidence: ["high", "medium", "low"].includes(sourceSuitability.confidence)
+          ? sourceSuitability.confidence
+          : assessmentStatus === "complete" ? "medium" : "low",
+        reasonCodes,
+        summary,
+        diagnostics,
+        bestSpans: finalTimelineSegments.map(({ start, end, title, focus: reason, timestamp, sourceText }) => ({
+          start, end, title, reason, timestamp, sourceText,
+        })),
+      },
+      learningOutcomes: finalLearningOutcomes,
+      studyMinutes: finalRecommendation === "intensive_study"
+        ? clamp(Math.round(Number(input.studyMinutes) || 12), 3, 45)
+        : 0,
       recommendedRange,
-      difficultRanges: timelineSegments.map(({ start, end }) => ({ start, end })),
-      learningItems,
-      expressions: learningItems,
-      timelineSegments,
+      difficultRanges: finalTimelineSegments.map(({ start, end }) => ({ start, end })),
+      learningItems: finalLearningItems,
+      expressions: finalLearningItems,
+      timelineSegments: finalTimelineSegments,
       coverage: {
         cueCount: normalizedCues.length,
         characterCount: normalizedCues.reduce((sum, cue) => sum + cue.text.length, 0),
@@ -369,7 +442,7 @@
         end: normalizedCues.at(-1)?.end || 0,
         complete: Boolean(input.coverage?.complete && coverageMatches),
       },
-      discussionQuestions: sanitizeDiscussionQuestions(input.discussionQuestions, videoTitle, normalizedCues),
+      discussionQuestions,
     };
   };
 
@@ -382,6 +455,7 @@
     analysis
     && typeof analysis === "object"
     && !analysis.localFallback
+    && analysis.suitability?.assessmentStatus === "complete"
   );
 
   PST.LearningModeCore = Object.freeze({
@@ -389,6 +463,8 @@
     createDiscussionQuestions,
     createFallbackAnalysis,
     cueAt,
+    deriveDifficultyFit,
+    deriveFinalRecommendation,
     extractYouTubeVideoId,
     formatTimestamp,
     isCacheableAnalysis,

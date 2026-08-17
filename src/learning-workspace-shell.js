@@ -135,6 +135,7 @@
       this.shadow = null;
       this.video = null;
       this.cues = [];
+      this.displayCues = [];
       this.activeCue = null;
       this.observer = null;
       this.refreshTimer = 0;
@@ -884,6 +885,7 @@
       if (!context?.ok || !this.shadow) return;
       this.context = context;
       this.cues = context.cues || [];
+      this.displayCues = context.displayCues || this.cues;
       this.shadow.querySelector(".heading h1").textContent = context.video?.title || "YouTube 视频";
       this.shadow.querySelector(".heading p").textContent = context.video?.author || "YouTube";
       this.syncPlayerState();
@@ -897,7 +899,8 @@
     syncCue() {
       if (!this.shadow) return;
       const time = Number(this.video?.currentTime) || 0;
-      const cue = PST.LearningModeCore.cueAt(this.cues, time);
+      const cue = PST.LearningModeCore.cueAt(this.displayCues, time);
+      const semanticCue = PST.LearningModeCore.cueAt(this.cues, time) || cue;
       const settings = this.getSettings?.() || {};
       const cueKey = [
         cue?.start ?? "",
@@ -908,7 +911,7 @@
         this.renderedCueKey = cueKey;
         this.renderCurrentCue(cue);
       }
-      this.activeCue = cue;
+      this.activeCue = semanticCue;
     }
 
     exit() {

@@ -40,7 +40,8 @@
         <button id="toggle-layout" type="button">Toggle theater layout</button>
         <button id="next-cue" type="button">Show pending translation</button>
         <button id="show-comments" type="button">Scroll to comments</button>
-        <button id="auto-sentence" type="button">Render complete auto-caption sentence</button>
+        <button id="auto-sentence" type="button">Render segmented auto caption</button>
+        <button id="timeline-sync" type="button">Render synchronized replacement cue</button>
       </ytd-masthead>
       <ytd-page-manager>
         <ytd-watch-flexy>
@@ -122,21 +123,59 @@
         document.querySelector("#comments").scrollIntoView();
       });
       document.querySelector("#auto-sentence").addEventListener("click", () => {
-        const words = [
-          "It's", "a", "bit", "embarrassing", "to", "admit,", "but", "in", "cybersecurity,",
-          "the", "small", "gaps", "are", "often", "the", "most", "dangerous", "ones.",
+        const sourceCues = [
+          { start: 15, end: 31, text: "Landscapes a reminder of the wild untap world that Still Remains beyond the reach of modern civilization twice the size" },
+          { start: 31, end: 42, text: "of Texas yet home to fewer than 750,000 people Alaska's vast expanses are connected by few roads making it the perfect" },
+          { start: 42, end: 54, text: "destination for adventurers seeking to explore nature in its Ross most inspiring form" },
         ];
-        const cues = PST.aggregateYouTubeAutoCues(words.map((text, index) => ({
-          start: index * 0.65,
-          end: (index * 0.65) + 1.1,
-          text,
-        })));
+        const { displayCues, semanticCues } = PST.segmentYouTubeAutoCues(sourceCues);
+        const cue = displayCues.find((item) => item.text.includes("twice the size")) || displayCues[0];
         overlay.setCue({
-          text: cues[0].text,
-          translation: "说来有点尴尬，但在网络安全领域，小缺口往往才是最危险的。",
+          text: cue.text,
+          translation: "面积是得州的两倍，但人口不到 75 万。",
           source: "YouTube Auto",
         });
-        document.body.dataset.autoSentenceCount = String(cues.length);
+        document.body.dataset.autoDisplayCount = String(displayCues.length);
+        document.body.dataset.autoSemanticCount = String(semanticCues.length);
+        document.body.dataset.autoDisplayTexts = JSON.stringify(displayCues.map((cue) => cue.text));
+      });
+      document.querySelector("#timeline-sync").addEventListener("click", () => {
+        const capture = new PST.CaptureCoordinator();
+        const resource = {
+          captionKind: "asr",
+          contentType: "application/json",
+          mediaKey: "youtube:timeline-sync",
+          url: "https://www.youtube.com/api/timedtext?v=timeline-sync&fmt=json3&kind=asr",
+        };
+        capture.timeline.ingest({
+          ...resource,
+          body: JSON.stringify({
+            events: [{ tStartMs: 1_000, dDurationMs: 4_000, segs: [{ utf8: "stale mixed caption" }] }],
+          }),
+        });
+        capture.timeline.ingest({
+          ...resource,
+          body: JSON.stringify({
+            events: [{
+              tStartMs: 1_000,
+              dDurationMs: 4_000,
+              segs: [
+                { utf8: "fresh ", tOffsetMs: 0 },
+                { utf8: "synchronized ", tOffsetMs: 420 },
+                { utf8: "caption", tOffsetMs: 980 },
+              ],
+            }],
+          }),
+        });
+        const cue = capture.timeline.at(2.1);
+        overlay.setCue({
+          ...cue,
+          translation: "新的同步字幕。",
+        });
+        document.body.dataset.timelineTexts = JSON.stringify(
+          [...capture.timeline.cues.values()].map((item) => item.text),
+        );
+        document.body.dataset.timelineCue = JSON.stringify(cue || null);
       });
       globalThis.qaOverlay = overlay;
       globalThis.qaPlayerSettings = playerSettings;

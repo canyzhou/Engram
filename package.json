@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "npm --prefix server run start:local",
-    "dev": "npm --prefix server run dev",
+    "dev": "node scripts/dev-all.mjs",
+    "dev:server": "npm --prefix server run dev",
+    "dev:extension": "node --watch --watch-preserve-output scripts/dev-extension.mjs",
     "build:extension": "node scripts/build-extension.mjs",
     "test": "node --test tests/*.test.mjs server/test/*.test.mjs"
   },

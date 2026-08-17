@@ -40,11 +40,19 @@
     vocabularyLevel: "B2",
     speechLevel: "B1+",
     syntaxLevel: "B2",
-    fitVerdict: "有挑战，但适合精学",
-    fitReasons: [
-      "叙事清楚、上下文连续，B1 学习者能抓住主线，同时会遇到少量 B2 旅行与自我成长表达。",
-      "说话者会用自然口语描述计划、感受和观点，适合练习从听懂事实过渡到理解态度。",
-    ],
+    suitability: {
+      assessmentStatus: "complete",
+      basis: "general_english_from_transcript",
+      materialQuality: "strong",
+      materialVerdict: "worth_intensive_study",
+      difficultyMatch: { materialLevel: "B2", learnerLevel: "B1", difficultyFit: "matched" },
+      finalRecommendation: "intensive_study",
+      confidence: "high",
+      reasonCodes: ["strong_coherent_spans", "useful_transferable_language", "level_matched"],
+      summary: "材料语境连续、信息充足，难度与你匹配，并且保留了适当挑战。",
+      diagnostics: { transcriptComplete: true, usableWordCount: 118, groundedLearningItemCount: 8 },
+      bestSpans: [],
+    },
     learningOutcomes: [
       "掌握旅行计划、徒步体验和表达兴奋感的地道说法。",
       "练习被动语态、比较级以及解释个人观点的长句。",
@@ -125,9 +133,13 @@
     analysisErrorMessage: document.querySelector("#analysis-error-message"),
     analysisContent: document.querySelector("#analysis-content"),
     retryAnalysis: document.querySelector("#retry-analysis"),
-    useLocalAnalysis: document.querySelector("#use-local-analysis"),
     refreshAnalysis: document.querySelector("#refresh-analysis"),
-    analysisSource: document.querySelector("#analysis-source"),
+    recommendationCard: document.querySelector("#recommendation-card"),
+    recommendationTitle: document.querySelector("#recommendation-title"),
+    recommendationSummary: document.querySelector("#recommendation-summary"),
+    analysisSummary: document.querySelector("#analysis-summary"),
+    analysisDetails: document.querySelector("#analysis-details"),
+    analysisDetailsTitle: document.querySelector("#analysis-details-title"),
     materialLevel: document.querySelector("#material-level"),
     analysisLearnerLevel: document.querySelector("#analysis-learner-level"),
     learningOutcomes: document.querySelector("#learning-outcomes"),
@@ -145,6 +157,8 @@
     autoFollow: document.querySelector("#auto-follow"),
     transcriptStatus: document.querySelector("#transcript-status"),
     transcriptList: document.querySelector("#transcript-list"),
+    discussionUnavailable: document.querySelector("#discussion-unavailable"),
+    discussionUnavailableMessage: document.querySelector("#discussion-unavailable-message"),
     discussionOutline: document.querySelector("#discussion-outline"),
     sourceQuestionList: document.querySelector("#source-question-list"),
     advancedQuestionList: document.querySelector("#advanced-question-list"),
@@ -169,12 +183,14 @@
   const state = {
     context: null,
     cues: [],
+    displayCues: [],
     analysis: null,
     activeTab: "analysis",
     currentTime: 0,
     duration: 0,
     playing: false,
     activeCue: null,
+    activeDisplayCue: null,
     discussionActive: false,
     discussionPhase: "outline",
     discussionQuestionIndex: 0,
@@ -366,10 +382,15 @@
   };
 
   const syncCurrentCue = () => {
-    const nextCue = Core.cueAt(state.cues, state.currentTime);
-    if (nextCue?.start === state.activeCue?.start) return;
+    const nextDisplayCue = Core.cueAt(state.displayCues, state.currentTime);
+    const nextCue = Core.cueAt(state.cues, state.currentTime) || nextDisplayCue;
+    if (
+      nextDisplayCue?.start === state.activeDisplayCue?.start
+      && nextCue?.start === state.activeCue?.start
+    ) return;
+    state.activeDisplayCue = nextDisplayCue;
     state.activeCue = nextCue;
-    const nextText = String(nextCue?.text || "").trim();
+    const nextText = String(nextDisplayCue?.text || "").trim();
     elements.currentSentence.textContent = nextText;
     elements.currentSentenceContainer.hidden = !nextText;
     syncCueSelection();
@@ -382,18 +403,31 @@
     elements.analysisLoading.hidden = true;
     elements.analysisError.hidden = true;
     elements.analysisContent.hidden = false;
-    elements.analysisSource.hidden = !analysis.localFallback;
-    elements.materialLevel.textContent = analysis.materialLevel;
+    const recommendation = analysis.suitability.finalRecommendation;
+    const recommendationCopy = {
+      intensive_study: { title: "推荐精学" },
+      extensive_viewing: { title: "建议泛看" },
+      not_recommended: { title: "不推荐" },
+    }[recommendation];
+    elements.recommendationCard.dataset.recommendation = recommendation;
+    elements.recommendationTitle.textContent = recommendationCopy.title;
+    elements.recommendationSummary.textContent = analysis.suitability.summary;
+    const detailsHidden = recommendation === "not_recommended"
+      || (recommendation === "extensive_viewing" && analysis.learningItems.length === 0 && analysis.timelineSegments.length === 0);
+    elements.analysisSummary.hidden = detailsHidden;
+    elements.analysisDetails.hidden = detailsHidden;
+    elements.analysisDetailsTitle.textContent = recommendation === "extensive_viewing" ? "可留意内容" : "主要收获";
+    elements.materialLevel.textContent = analysis.materialLevel || "—";
     elements.analysisLearnerLevel.textContent = analysis.learnerLevel;
+    elements.vocabularyLevel.textContent = analysis.vocabularyLevel || "—";
+    elements.speechLevel.textContent = analysis.speechLevel || "—";
+    elements.syntaxLevel.textContent = analysis.syntaxLevel || "—";
     const renderTextList = (element, items) => element.replaceChildren(...items.map((text) => {
       const item = document.createElement("li");
       item.textContent = text;
       return item;
     }));
-    renderTextList(elements.learningOutcomes, analysis.learningOutcomes);
-    elements.vocabularyLevel.textContent = analysis.vocabularyLevel;
-    elements.speechLevel.textContent = analysis.speechLevel;
-    elements.syntaxLevel.textContent = analysis.syntaxLevel;
+    renderTextList(elements.learningOutcomes, analysis.learningOutcomes.slice(0, 2));
     const categoryLabels = {
       word: "单词",
       grammar: "语法",
@@ -432,7 +466,8 @@
       marker.addEventListener("click", () => seekTo(segment.timestamp));
       return marker;
     }));
-    elements.recommendedRange.textContent = `建议精学 ${Core.formatTimestamp(analysis.recommendedRange.start)}–${Core.formatTimestamp(analysis.recommendedRange.end)}`;
+    const rangeLabel = recommendation === "extensive_viewing" ? "可留意" : "建议精学";
+    elements.recommendedRange.textContent = `${rangeLabel} ${Core.formatTimestamp(analysis.recommendedRange.start)}–${Core.formatTimestamp(analysis.recommendedRange.end)}`;
     elements.recommendedRange.onclick = () => seekTo(analysis.recommendedRange.start);
     elements.timelineSegmentList.replaceChildren(...timelineSegments.map((segment) => {
       const button = document.createElement("button");
@@ -448,9 +483,15 @@
 
   const applyLearningContext = (response) => {
     state.context = response;
-    state.duration = Math.max(Number(response.video?.duration) || 0, Number(response.cues?.at(-1)?.end) || 0, 1);
+    state.duration = Math.max(
+      Number(response.video?.duration) || 0,
+      Number(response.cues?.at(-1)?.end) || 0,
+      Number(response.displayCues?.at(-1)?.end) || 0,
+      1,
+    );
     state.currentTime = Number(response.video?.currentTime) || state.currentTime || 0;
     state.cues = Core.normalizeCues(response.cues, state.duration);
+    state.displayCues = Core.normalizeCues(response.displayCues || response.cues, state.duration);
     elements.title.textContent = response.video?.title || "YouTube 视频";
     elements.author.textContent = response.video?.author || "YouTube";
     renderCueRail();
@@ -489,15 +530,14 @@
       await loadAnalysis({ allowPartial: true });
       return;
     }
-    elements.analysisLoading.hidden = true;
-    elements.analysisContent.hidden = true;
-    elements.analysisError.hidden = false;
-    elements.useLocalAnalysis.hidden = true;
-    elements.analysisErrorMessage.textContent = lastContextError
-      || "未能从 YouTube 取得足够的英文字幕。请刷新视频页后重试，并确认该视频提供英文字幕。";
+    renderUnavailableAnalysis({
+      assessmentStatus: "pending",
+      reasonCode: "transcript_incomplete",
+      summary: lastContextError || "字幕仍未收集完整，当前不推荐使用这份材料生成课程。",
+    });
   };
 
-  const analysisCacheKey = () => `learning-analysis:v5:${state.context?.video?.id || "unknown"}:${Core.transcriptHash(state.cues)}:${elements.learnerLevel.value}`;
+  const analysisCacheKey = () => `learning-analysis:v6:${state.context?.video?.id || "unknown"}:${Core.transcriptHash(state.cues)}:${elements.learnerLevel.value}`;
 
   const getCachedAnalysis = async () => {
     if (!hasExtensionApi) return null;
@@ -534,27 +574,33 @@
     await writeExtensionStorage("local", { [History.STORAGE_KEY]: History.upsertHistory(history, record) });
   };
 
-  const renderLocalAnalysis = () => {
-    state.analysis = Core.sanitizeAnalysis(Core.createFallbackAnalysis({
+  const renderUnavailableAnalysis = ({
+    assessmentStatus = "failed",
+    reasonCode = "analysis_unavailable",
+    summary = "分析未完成，当前不推荐使用这份材料生成课程。",
+  } = {}) => {
+    const fallback = Core.createFallbackAnalysis({
       cues: state.cues,
       duration: state.duration,
       learnerLevel: elements.learnerLevel.value,
-      videoTitle: state.context?.video?.title,
-    }), {
+    });
+    fallback.suitability.assessmentStatus = assessmentStatus;
+    fallback.suitability.reasonCodes = [reasonCode];
+    fallback.suitability.summary = summary;
+    fallback.suitability.diagnostics.transcriptComplete = Boolean(state.context?.completeTimeline);
+    state.analysis = Core.sanitizeAnalysis(fallback, {
       cues: state.cues,
       duration: state.duration,
       learnerLevel: elements.learnerLevel.value,
       videoTitle: state.context?.video?.title,
     });
     renderAnalysis(state.analysis);
-    saveAnalysisToHistory(state.analysis).catch(() => undefined);
   };
 
   const loadAnalysis = async ({ force = false, allowPartial = false } = {}) => {
     elements.analysisLoading.hidden = false;
     elements.analysisError.hidden = true;
     elements.analysisContent.hidden = true;
-    elements.useLocalAnalysis.hidden = false;
     if (!previewMode && !state.context?.completeTimeline && !allowPartial) {
       waitForMoreLearningCues();
       return;
@@ -585,10 +631,11 @@
       renderAnalysis(state.analysis);
       saveAnalysisToHistory(state.analysis).catch(() => undefined);
     } catch (error) {
-      elements.analysisLoading.hidden = true;
-      elements.analysisContent.hidden = true;
-      elements.analysisError.hidden = false;
-      elements.analysisErrorMessage.textContent = error?.message || "AI 没有返回完整结果，请重试或暂时使用本地简版。";
+      renderUnavailableAnalysis({
+        assessmentStatus: state.context?.completeTimeline ? "failed" : "pending",
+        reasonCode: state.context?.completeTimeline ? "analysis_unavailable" : "transcript_incomplete",
+        summary: error?.message || "分析未完成，当前不推荐使用这份材料生成课程。",
+      });
       if (!state.context?.completeTimeline) waitForMoreLearningCues();
     }
   };
@@ -623,6 +670,7 @@
   };
 
   const getDiscussionPlan = () => {
+    if (state.analysis?.suitability?.finalRecommendation !== "intensive_study") return [];
     const fallback = Core.createDiscussionQuestions(state.context?.video?.title, state.cues);
     const questions = state.analysis?.discussionQuestions || fallback;
     const planItem = (question, type) => ({
@@ -671,6 +719,24 @@
   };
 
   const renderDiscussionOutline = () => {
+    const recommendation = state.analysis?.suitability?.finalRecommendation;
+    const discussionAvailable = recommendation === "intensive_study";
+    elements.discussionUnavailable.hidden = discussionAvailable || !state.analysis;
+    if (!discussionAvailable && state.analysis) {
+      elements.discussionUnavailableMessage.textContent = recommendation === "extensive_viewing"
+        ? "这份材料更适合泛看，不生成完整讨论课。"
+        : "当前建议是不推荐学习，仍可继续观看或查看字幕。";
+      elements.discussionOutline.hidden = true;
+      elements.discussionStartActions.hidden = true;
+      elements.discussionSession.hidden = true;
+      elements.discussionForm.hidden = true;
+      state.discussionPlan = [];
+      renderQuestionList(elements.sourceQuestionList, []);
+      renderQuestionList(elements.advancedQuestionList, []);
+      return;
+    }
+    elements.discussionOutline.hidden = false;
+    elements.discussionStartActions.hidden = false;
     const fallback = Core.createDiscussionQuestions(state.context?.video?.title, state.cues);
     const questions = state.analysis?.discussionQuestions || fallback;
     state.discussionPlan = getDiscussionPlan();
@@ -690,8 +756,6 @@
     state.discussionQuestionIndex = 0;
     state.messages = [];
     elements.discussionMessages.replaceChildren();
-    elements.discussionOutline.hidden = false;
-    elements.discussionStartActions.hidden = false;
     elements.discussionSession.hidden = true;
     elements.discussionForm.hidden = true;
     elements.discussionIntro.hidden = true;
@@ -702,6 +766,7 @@
 
   const startDiscussion = async () => {
     if (!state.analysis) await loadAnalysis();
+    if (state.analysis?.suitability?.finalRecommendation !== "intensive_study") return;
     state.discussionPlan = getDiscussionPlan();
     if (!state.discussionPlan.length) return;
     state.discussionActive = true;
@@ -921,7 +986,6 @@
   });
   elements.transcriptSearch.addEventListener("input", renderTranscript);
   elements.retryAnalysis.addEventListener("click", () => loadAnalysis({ force: true }));
-  elements.useLocalAnalysis.addEventListener("click", renderLocalAnalysis);
   elements.refreshAnalysis.addEventListener("click", () => loadAnalysis({ force: true }));
   elements.learnerLevel.addEventListener("change", () => {
     (async () => {

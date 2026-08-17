@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import test from "node:test";
 import {
+  buildLessonDiagnostics,
   buildDeepSeekRequest,
   buildLessonAnalysisRequest,
   buildLessonDiscussionRequest,
   buildWordLookupRequest,
   createTranslationServer,
+  deriveFinalRecommendation,
   normalizeLessonAnalysisRequest,
   normalizeLessonAnalysisResult,
   normalizeLessonDiscussionRequest,
@@ -170,7 +172,9 @@ test("builds a fixed grounded lesson analysis request", () => {
   const upstream = buildLessonAnalysisRequest(request);
   assert.equal(upstream.model, "deepseek-v4-flash");
   assert.equal(upstream.response_format.type, "json_object");
-  assert.match(upstream.messages[0].content, /5–8 个可迁移的学习项/);
+  assert.match(upstream.messages[0].content, /worth_intensive_study 时选择 5–8 个可迁移学习项/);
+  assert.match(upstream.messages[0].content, /判断材料本身，不要受 learner_level 影响/);
+  assert.match(upstream.messages[0].content, /not_suitable 时 learningOutcomes、learningItems、timelineSegments 和 discussionQuestions 必须为空/);
   assert.match(upstream.messages[0].content, /必须使用简体中文/);
   assert.match(upstream.messages[0].content, /普通词留空字符串/);
   assert.match(upstream.messages[0].content, /timelineSegments/);
@@ -186,8 +190,9 @@ test("anchors 5–8 lesson items and concise timeline segments to real subtitle 
     vocabularyLevel: "B2",
     speechLevel: "B1+",
     syntaxLevel: "B2",
-    fitVerdict: "有挑战，但适合精学",
-    fitReasons: ["主题熟悉但包含可提升的表达。", "字幕上下文连续，适合精听。"],
+    materialVerdict: "worth_intensive_study",
+    reasonCodes: ["strong_coherent_spans", "useful_transferable_language"],
+    suitabilitySummary: "字幕语境连续，包含可迁移的计划、估算与准备表达。",
     learningOutcomes: ["掌握徒步计划表达。", "练习被动语态和时间估算。"],
     studyMinutes: 12,
     recommendedRange: { start: 10, end: 34 },
@@ -207,11 +212,86 @@ test("anchors 5–8 lesson items and concise timeline segments to real subtitle 
   assert.deepEqual(analysis.learningItems.map((item) => item.timestamp), [10, 10, 20, 20, 30]);
   assert.deepEqual(analysis.timelineSegments.map((item) => item.timestamp), [10, 20]);
   assert.equal(analysis.coverage.complete, true);
+  assert.equal(analysis.suitability.materialVerdict, "worth_intensive_study");
+  assert.equal(analysis.suitability.difficultyMatch.difficultyFit, "matched");
+  assert.equal(analysis.suitability.finalRecommendation, "intensive_study");
   assert.deepEqual(analysis.discussionQuestions, lessonQuestions);
 });
 
+test("combines material value and difficulty into one final recommendation", () => {
+  assert.equal(deriveFinalRecommendation("worth_intensive_study", "matched"), "intensive_study");
+  assert.equal(deriveFinalRecommendation("worth_intensive_study", "too_easy"), "extensive_viewing");
+  assert.equal(deriveFinalRecommendation("worth_intensive_study", "too_hard"), "not_recommended");
+  assert.equal(deriveFinalRecommendation("viewing_only", "matched"), "extensive_viewing");
+  assert.equal(deriveFinalRecommendation("viewing_only", "too_hard"), "not_recommended");
+  assert.equal(deriveFinalRecommendation("not_suitable", "matched"), "not_recommended");
+  assert.equal(deriveFinalRecommendation("worth_intensive_study", "unknown"), "not_recommended");
+});
+
+test("downgrades high-quality material that is too easy or too hard for the learner", () => {
+  const learningItems = [
+    { category: "pattern", expression: "go on a hike", meaningZh: "去徒步", timestamp: 10 },
+    { category: "grammar", expression: "going to", meaningZh: "将要", timestamp: 10 },
+    { category: "word", expression: "roughly", meaningZh: "大约", timestamp: 20 },
+    { category: "pattern", expression: "eight hours", meaningZh: "八小时", timestamp: 20 },
+    { category: "grammar", expression: "told to bring", meaningZh: "被告知带上", timestamp: 30 },
+  ];
+  const source = {
+    materialVerdict: "worth_intensive_study",
+    reasonCodes: ["strong_coherent_spans", "useful_transferable_language"],
+    suitabilitySummary: "字幕语境连续，包含可迁移表达。",
+    learningItems,
+    discussionQuestions: lessonQuestions,
+  };
+  const easy = normalizeLessonAnalysisResult({ ...source, materialLevel: "A1" }, normalizeLessonAnalysisRequest({
+    learnerLevel: "B2", video: { duration: 120 }, cues: lessonCues, transcriptComplete: true,
+  }));
+  const hard = normalizeLessonAnalysisResult({ ...source, materialLevel: "C1" }, normalizeLessonAnalysisRequest({
+    learnerLevel: "B1", video: { duration: 120 }, cues: lessonCues, transcriptComplete: true,
+  }));
+
+  assert.equal(easy.suitability.materialVerdict, "worth_intensive_study");
+  assert.equal(easy.suitability.difficultyMatch.difficultyFit, "too_easy");
+  assert.equal(easy.suitability.finalRecommendation, "extensive_viewing");
+  assert.equal(easy.learningItems.length, 4);
+  assert.equal(easy.studyMinutes, 0);
+  assert.deepEqual(easy.discussionQuestions, { source: [], advanced: [] });
+  assert.equal(hard.suitability.materialVerdict, "worth_intensive_study");
+  assert.equal(hard.suitability.difficultyMatch.difficultyFit, "too_hard");
+  assert.equal(hard.suitability.finalRecommendation, "not_recommended");
+  assert.deepEqual(hard.learningItems, []);
+  assert.deepEqual(hard.discussionQuestions, { source: [], advanced: [] });
+});
+
+test("rejects sparse fragmented subtitles without producing a difficulty conclusion", () => {
+  const cues = [
+    { start: 1, end: 2, text: "okay" },
+    { start: 301, end: 303, text: "that was cool" },
+    { start: 538, end: 540, text: "[Applause]" },
+  ];
+  const request = normalizeLessonAnalysisRequest({
+    learnerLevel: "B1", video: { duration: 540 }, cues, transcriptComplete: true,
+  });
+  const diagnostics = buildLessonDiagnostics(request);
+  const result = normalizeLessonAnalysisResult({
+    materialVerdict: "worth_intensive_study",
+    materialLevel: "B1",
+    reasonCodes: ["fragmented_context", "low_semantic_density"],
+  }, request);
+
+  assert.equal(diagnostics.usableWordCount, 4);
+  assert.ok(diagnostics.fragmentRatio > 0.9);
+  assert.equal(result.suitability.materialVerdict, "not_suitable");
+  assert.equal(result.suitability.difficultyMatch.difficultyFit, "unknown");
+  assert.equal(result.suitability.finalRecommendation, "not_recommended");
+  assert.deepEqual(result.learningItems, []);
+  assert.deepEqual(result.timelineSegments, []);
+});
+
 test("derives subtitle evidence when the model returns lightweight question strings", () => {
-  const request = normalizeLessonAnalysisRequest({ learnerLevel: "B1", video: { duration: 120 }, cues: lessonCues });
+  const request = normalizeLessonAnalysisRequest({
+    learnerLevel: "B1", video: { duration: 120 }, cues: lessonCues, transcriptComplete: true,
+  });
   const questions = {
     source: [
       "Why is the speaker going on a hike?",
@@ -230,7 +310,8 @@ test("derives subtitle evidence when the model returns lightweight question stri
   };
   const base = {
     materialLevel: "B2", vocabularyLevel: "B2", speechLevel: "B1+", syntaxLevel: "B2",
-    fitVerdict: "适合精学", fitReasons: ["主题明确。", "表达实用。"],
+    materialVerdict: "worth_intensive_study",
+    reasonCodes: ["strong_coherent_spans", "useful_transferable_language"],
     learningOutcomes: ["掌握徒步表达。", "练习计划表达。"], studyMinutes: 12,
     recommendedRange: { start: 10, end: 34 }, discussionQuestions: questions,
     learningItems: [
@@ -407,8 +488,9 @@ test("serves a structured and grounded lesson analysis", async () => {
           vocabularyLevel: "B2",
           speechLevel: "B1+",
           syntaxLevel: "B2",
-          fitVerdict: "有挑战，但适合精学",
-          fitReasons: ["主题清楚且有进阶表达。", "适合按时间轴精听。"],
+          materialVerdict: "worth_intensive_study",
+          reasonCodes: ["strong_coherent_spans", "useful_transferable_language"],
+          suitabilitySummary: "字幕语境连续，包含可迁移的计划、估算与准备表达。",
           learningOutcomes: ["掌握徒步计划表达。", "练习时间估算和被动语态。"],
           studyMinutes: 12,
           recommendedRange: { start: 10, end: 34 },
@@ -438,6 +520,7 @@ test("serves a structured and grounded lesson analysis", async () => {
   assert.equal(payload.analysis.timelineSegments.length, 2);
   assert.equal(payload.analysis.coverage.cueCount, lessonCues.length);
   assert.equal(payload.analysis.coverage.complete, true);
+  assert.equal(payload.analysis.suitability.finalRecommendation, "intensive_study");
   assert.equal(payload.analysis.discussionQuestions.source.length, 5);
 });
 
@@ -447,8 +530,9 @@ test("returns a partial lesson analysis without a second upstream repair call", 
     vocabularyLevel: "B2",
     speechLevel: "B1+",
     syntaxLevel: "B2",
-    fitVerdict: "有挑战，但适合精学",
-    fitReasons: ["主题清楚且有进阶表达。", "适合按时间轴精听。"],
+    materialVerdict: "worth_intensive_study",
+    reasonCodes: ["strong_coherent_spans", "useful_transferable_language"],
+    suitabilitySummary: "字幕语境连续，包含可迁移的计划、估算与准备表达。",
     learningOutcomes: ["掌握徒步计划与准备表达。", "练习时间估算和被动语态。"],
     studyMinutes: 12,
     recommendedRange: { start: 10, end: 34 },
@@ -531,8 +615,9 @@ test("analyzes every cue in a long transcript through grounded chunks without si
           vocabularyLevel: "B2",
           speechLevel: "B1+",
           syntaxLevel: "B2",
-          fitVerdict: "适合完整精学",
-          fitReasons: ["全部时间段都有可学习表达。", "内容难度与学习者相邻。"],
+          materialVerdict: "worth_intensive_study",
+          reasonCodes: ["strong_coherent_spans", "useful_transferable_language"],
+          suitabilitySummary: "完整字幕包含稳定语境与可迁移表达。",
           learningOutcomes: ["掌握贯穿视频的表达。", "按时间轴练习听辨。"],
           studyMinutes: 20,
           recommendedRange: { start: longCues[0].start, end: longCues.at(-1).end },
@@ -549,7 +634,9 @@ test("analyzes every cue in a long transcript through grounded chunks without si
           vocabularyLevel: "B2",
           speechLevel: "B1+",
           syntaxLevel: "B2",
-          fitReasons: ["分段内容有稳定上下文。"],
+          materialVerdict: "worth_intensive_study",
+          reasonCodes: ["strong_coherent_spans", "useful_transferable_language"],
+          suitabilitySummary: "分段内容有稳定上下文。",
           learningOutcomes: ["掌握该段的关键词。"],
           learningItems: [
             { category: "word", expression: "alpine", meaningZh: "高山的", why: "主题词", timestamp: cue.start },

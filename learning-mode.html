@@ -85,46 +85,62 @@
             </div>
             <div class="analysis-error" id="analysis-error" hidden>
               <h2>AI 分析未完成</h2>
-              <p id="analysis-error-message">AI 没有返回完整结果，请重试或暂时使用本地简版。</p>
+              <p id="analysis-error-message">AI 没有返回完整结果，请重试或先查看字幕。</p>
               <div class="error-actions">
                 <button class="primary-button" id="retry-analysis" type="button">重试分析</button>
-                <button class="text-button" id="use-local-analysis" type="button">使用本地简版</button>
                 <button class="text-button" type="button" data-switch-tab="transcript">先看字幕</button>
               </div>
             </div>
             <div class="analysis-content" id="analysis-content" hidden>
-              <p class="analysis-source" id="analysis-source" hidden>本地简版 · 未使用 AI</p>
-              <div class="analysis-heading">
-                <h2>你能学到什么</h2>
-                <button class="refresh-analysis-button" id="refresh-analysis" type="button" aria-label="重新获取 AI 分析">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
-                  <span>刷新 AI 分析</span>
-                </button>
-              </div>
-              <ul class="learning-outcomes" id="learning-outcomes"></ul>
-              <div class="level-summary">
-                <span>材料 <strong id="material-level">B2</strong></span>
-                <i></i>
-                <span>你的水平 <strong id="analysis-learner-level">B1</strong></span>
-              </div>
-              <dl class="difficulty-strip">
-                <div><dt>词汇</dt><dd id="vocabulary-level">B2</dd></div>
-                <div><dt>语速</dt><dd id="speech-level">B1+</dd></div>
-                <div><dt>句法</dt><dd id="syntax-level">B2</dd></div>
-              </dl>
-              <section class="expression-section">
-                <div class="section-heading">
-                  <h3>学习重点</h3>
-                  <span id="learning-item-count">0 项</span>
+              <section class="recommendation-card" id="recommendation-card" data-recommendation="intensive_study" aria-live="polite">
+                <div class="recommendation-overview">
+                  <div class="recommendation-heading">
+                    <div>
+                      <span>学习建议</span>
+                      <h2 id="recommendation-title">推荐精学</h2>
+                    </div>
+                    <button class="refresh-analysis-button" id="refresh-analysis" type="button" aria-label="重新获取 AI 分析">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg>
+                      <span>刷新 AI 分析</span>
+                    </button>
+                  </div>
+                  <p id="recommendation-summary">材料语境连续、信息充足，难度与你匹配，推荐精学。</p>
                 </div>
-                <div class="expression-list" id="expression-list"></div>
+                <div class="analysis-summary" id="analysis-summary">
+                  <div class="analysis-heading">
+                    <h3 id="analysis-details-title">主要收获</h3>
+                  </div>
+                  <ul class="learning-outcomes" id="learning-outcomes"></ul>
+                  <div class="level-summary">
+                    <div class="material-level-control">
+                      <span>材料</span>
+                      <span class="material-level-trigger" id="material-level" aria-describedby="material-level-popover">B2</span>
+                      <dl class="material-level-popover" id="material-level-popover" role="tooltip" aria-label="材料难度详情">
+                        <div><dt>词汇</dt><dd id="vocabulary-level">B2</dd></div>
+                        <div><dt>语速</dt><dd id="speech-level">B1+</dd></div>
+                        <div><dt>句法</dt><dd id="syntax-level">B2</dd></div>
+                      </dl>
+                    </div>
+                    <i></i>
+                    <span>你的水平 <strong id="analysis-learner-level">B1</strong></span>
+                  </div>
+                </div>
               </section>
-              <section class="difficulty-timeline-section">
-                <h3>推荐片段</h3>
-                <div class="difficulty-timeline" id="difficulty-timeline" aria-label="推荐片段分布"></div>
-                <button class="recommended-range" id="recommended-range" type="button">建议精学 0:00–0:00</button>
-                <div class="timeline-segment-list" id="timeline-segment-list"></div>
-              </section>
+              <div class="analysis-details" id="analysis-details">
+                <section class="expression-section">
+                  <div class="section-heading">
+                    <h3>学习重点</h3>
+                    <span id="learning-item-count">0 项</span>
+                  </div>
+                  <div class="expression-list" id="expression-list"></div>
+                </section>
+                <section class="difficulty-timeline-section">
+                  <h3>推荐片段</h3>
+                  <div class="difficulty-timeline" id="difficulty-timeline" aria-label="推荐片段分布"></div>
+                  <button class="recommended-range" id="recommended-range" type="button">建议精学 0:00–0:00</button>
+                  <div class="timeline-segment-list" id="timeline-segment-list"></div>
+                </section>
+              </div>
             </div>
           </section>
 
@@ -141,6 +157,12 @@
           </section>
 
           <section class="tab-panel discussion-panel" id="panel-discussion" role="tabpanel" aria-labelledby="tab-discussion" hidden>
+            <div class="discussion-unavailable" id="discussion-unavailable" hidden>
+              <span>讨论暂不可用</span>
+              <h2>这份材料不生成讨论课</h2>
+              <p id="discussion-unavailable-message">当前学习建议不是精学，仍可继续观看或查看字幕。</p>
+              <button class="text-button" type="button" data-switch-tab="analysis">查看学习建议</button>
+            </div>
             <div class="discussion-outline" id="discussion-outline">
               <header class="discussion-outline-heading">
                 <h2>讨论提纲</h2>

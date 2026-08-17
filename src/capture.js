@@ -71,9 +71,10 @@
     const cues = [];
     for (let index = 0; index < events.length; index += 1) {
       const event = events[index];
-      const text = PST.normalizeSubtitle(
-        (event?.segs || []).map((segment) => segment?.utf8 || "").join(""),
-      );
+      const segments = Array.isArray(event?.segs) ? event.segs : [];
+      const rawText = segments.map((segment) => segment?.utf8 || "").join("");
+      const speakerBreak = /(?:>{2,}|＞{2,})/.test(rawText);
+      const text = PST.normalizeSubtitle(rawText);
       const startMs = Number(event?.tStartMs);
       if (!text || !Number.isFinite(startMs)) continue;
       const durationMs = Number(event?.dDurationMs);
@@ -81,8 +82,35 @@
       const inferredDurationMs = Number.isFinite(nextStartMs) && nextStartMs > startMs
         ? nextStartMs - startMs
         : 2_000;
-      const endMs = startMs + (Number.isFinite(durationMs) && durationMs > 0 ? durationMs : inferredDurationMs);
-      cues.push({ start: startMs / 1000, end: endMs / 1000, text });
+      const explicitEndMs = startMs + (Number.isFinite(durationMs) && durationMs > 0 ? durationMs : inferredDurationMs);
+      const endMs = Number.isFinite(nextStartMs) && nextStartMs > startMs
+        ? Math.min(explicitEndMs, nextStartMs)
+        : explicitEndMs;
+      const hasWordOffsets = segments.some((segment) => Number.isFinite(Number(segment?.tOffsetMs)));
+      const atoms = hasWordOffsets
+        ? segments.flatMap((segment, segmentIndex) => {
+          const segmentText = PST.normalizeSubtitle(segment?.utf8 || "");
+          if (!segmentText) return [];
+          const offsetMs = Number(segment?.tOffsetMs);
+          const segmentStartMs = Number.isFinite(offsetMs) ? startMs + Math.max(0, offsetMs) : startMs;
+          const followingOffsetMs = segments
+            .slice(segmentIndex + 1)
+            .map((nextSegment) => Number(nextSegment?.tOffsetMs))
+            .find((nextOffset) => Number.isFinite(nextOffset));
+          const segmentEndMs = Number.isFinite(followingOffsetMs)
+            ? Math.min(endMs, startMs + Math.max(0, followingOffsetMs))
+            : endMs;
+          const boundedStartMs = Math.min(segmentStartMs, Math.max(startMs, endMs - 20));
+          const boundedEndMs = Math.max(boundedStartMs + 20, Math.min(endMs, segmentEndMs));
+          return splitAutomaticAtom({
+            start: boundedStartMs / 1000,
+            end: boundedEndMs / 1000,
+            text: segmentText,
+            speakerBreak: segmentIndex === 0 && speakerBreak,
+          });
+        })
+        : [];
+      cues.push({ start: startMs / 1000, end: endMs / 1000, text, speakerBreak, atoms });
     }
     return cues;
   };
@@ -403,6 +431,292 @@
     incremental: true,
   });
 
+  const AUTO_TURN_STARTERS = new Set([
+    "actually", "alright", "and", "anyway", "are", "but", "can", "could", "did", "do",
+    "does", "finally", "first", "how", "i", "if", "meanwhile", "next", "no", "now", "okay",
+    "right", "she", "so", "then", "they", "we", "well", "what", "when", "where", "who",
+    "why", "would", "yeah", "yes", "you",
+  ]);
+  const INCOMPLETE_CAPTION_ENDING = /\b(?:a|an|the|and|or|but|because|if|when|while|to|of|in|on|at|for|with|from|by|as|that|which|who|whose|my|your|his|her|its|our|their|he|she|it|we|you|they|is|are|was|were|be|been|being|have|has|had|do|does|did|can|could|will|would|should|may|might|must|not|i|i'm|i've|i'll|i'd)$/i;
+  const CONTINUATION_CAPTION_STARTERS = new Set([
+    "a", "an", "as", "at", "by", "enough", "for", "from", "in", "of", "on", "than", "the", "to", "with",
+  ]);
+  const CLAUSE_CAPTION_STARTERS = new Set([
+    "although", "and", "based", "because", "but", "however", "if", "including", "instead", "making",
+    "join", "meanwhile", "or", "seeking", "so", "then", "though", "twice", "when", "where",
+    "which", "while", "who", "yet",
+  ]);
+  const SUBJECT_CAPTION_STARTERS = new Set([
+    "he", "i", "it", "she", "that", "these", "they", "this", "those", "we", "you",
+  ]);
+  const INCOMPLETE_QUANTITY_ENDINGS = new Set([
+    "eight", "eleven", "fewer", "five", "four", "less", "more", "nine", "one", "seven", "six",
+    "ten", "than", "three", "twelve", "two",
+  ]);
+  const COMMON_MODIFIER_ENDINGS = new Set([
+    "breathtaking", "different", "entire", "few", "first", "great", "inspiring", "last", "largest",
+    "little", "modern", "most", "new", "next", "nice", "perfect", "personal", "remote", "same", "several",
+    "road", "small", "special", "untouched", "vast", "wild",
+  ]);
+  const INCOMPLETE_VERB_ENDINGS = new Set([
+    "build", "call", "explore", "find", "get", "give", "know", "learn", "like", "love", "make",
+    "need", "return", "see", "show", "take", "tell", "use", "visit", "want", "watch",
+  ]);
+
+  const splitAutomaticAtom = (atom) => {
+    const matches = [...atom.text.matchAll(/\S+/g)];
+    if (matches.length < 2) return [atom];
+    const span = Math.max(0.2, atom.end - atom.start);
+    const textLength = Math.max(1, atom.text.length);
+    return matches.map((match, index) => {
+      const nextIndex = matches[index + 1]?.index ?? textLength;
+      return {
+        start: atom.start + (span * (match.index / textLength)),
+        end: index === matches.length - 1
+          ? atom.end
+          : atom.start + (span * (nextIndex / textLength)),
+        text: match[0],
+        speakerBreak: index === 0 && atom.speakerBreak,
+      };
+    });
+  };
+
+  const prepareAutomaticCueAtoms = (cues) => {
+    const ordered = [...(cues || [])]
+      .filter((cue) => cue?.text && Number.isFinite(cue.start))
+      .sort((left, right) => left.start - right.start);
+    const atoms = [];
+    let previousRawText = "";
+    let pendingSpeakerBreak = false;
+    for (const cue of ordered) {
+      const rawText = PST.normalizeSubtitle(cue.text);
+      pendingSpeakerBreak = pendingSpeakerBreak || Boolean(cue.speakerBreak);
+      const text = captionDelta(previousRawText, rawText);
+      previousRawText = rawText;
+      if (!text) continue;
+      const deltaWords = comparisonTokens(text).map((token) => token.value);
+      const sourceAtoms = Array.isArray(cue.atoms) ? cue.atoms : [];
+      const sourceWords = sourceAtoms.map((atom) => comparisonTokens(atom.text)[0]?.value || "");
+      const offsetAtoms = deltaWords.length && sourceWords.length >= deltaWords.length
+        && sourceWords.slice(-deltaWords.length).every((word, index) => word === deltaWords[index])
+        ? sourceAtoms.slice(-deltaWords.length).map((atom, index) => ({
+          ...atom,
+          speakerBreak: index === 0 && pendingSpeakerBreak,
+        }))
+        : [];
+      atoms.push(...(offsetAtoms.length ? offsetAtoms : splitAutomaticAtom({
+        start: cue.start,
+        end: Number.isFinite(cue.end) && cue.end > cue.start ? cue.end : cue.start + 2,
+        text,
+        speakerBreak: pendingSpeakerBreak,
+      })));
+      pendingSpeakerBreak = false;
+    }
+    return atoms;
+  };
+
+  const captionWordCount = (text) => comparisonTokens(text).length;
+  const captionStartsTurn = (text) => {
+    const first = comparisonTokens(text)[0]?.value || "";
+    return AUTO_TURN_STARTERS.has(first);
+  };
+  const captionEndsSentence = (text) => /[.!?…]+["'’”\])}]*$/.test(PST.normalizeSubtitle(text));
+  const captionEndsClause = (text) => /[,;:，；：、—–]["'’”\])}]*$/.test(PST.normalizeSubtitle(text));
+  const captionPause = (current, next) => (
+    next ? Math.max(0, Number(next.start) - Number(current.end)) : Number.POSITIVE_INFINITY
+  );
+
+  const captionBoundaryStrength = (text, next) => {
+    if (!next?.text) return 0;
+    const currentTokens = comparisonTokens(text);
+    const nextTokens = comparisonTokens(next.text);
+    const lastWord = currentTokens.at(-1)?.value || "";
+    const nextWord = nextTokens[0]?.value || "";
+    if (!nextWord) return 0;
+    if (CONTINUATION_CAPTION_STARTERS.has(nextWord)) return -34;
+    if (
+      INCOMPLETE_QUANTITY_ENDINGS.has(lastWord)
+      || COMMON_MODIFIER_ENDINGS.has(lastWord)
+      || INCOMPLETE_VERB_ENDINGS.has(lastWord)
+      || /\d/u.test(lastWord)
+      || /(?:able|ible|al|ary|ent|est|ful|ic|ing|ive|less|ory|ous)$/u.test(lastWord)
+    ) return -30;
+
+    let strength = 0;
+    if (CLAUSE_CAPTION_STARTERS.has(nextWord)) strength += 18;
+    else if (SUBJECT_CAPTION_STARTERS.has(nextWord)) strength += 14;
+    const visibleNextWord = PST.normalizeSubtitle(next.text).match(/^[\s\-–—"'“”‘’([{]*([\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*)/u)?.[1] || "";
+    if (/^\p{Lu}/u.test(visibleNextWord) && nextWord !== "i") strength += 4;
+    return strength;
+  };
+
+  const displayBoundaryEvidence = (current, next, text) => {
+    const pause = captionPause(current, next);
+    return {
+      pause,
+      speaker: Boolean(next?.speakerBreak),
+      sentence: captionEndsSentence(text),
+      clause: captionEndsClause(text),
+      turn: Boolean(next && captionStartsTurn(next.text)),
+      semantic: captionBoundaryStrength(text, next),
+    };
+  };
+
+  const displaySegmentCost = ({ text, start, end, current, next }) => {
+    const length = text.length;
+    const words = captionWordCount(text);
+    const duration = Math.max(0.2, end - start);
+    const evidence = displayBoundaryEvidence(current, next, text);
+    let cost = 14;
+
+    if (words < 3 && next && !evidence.speaker) cost += (3 - words) * 18;
+    if (duration < 1 && next && !evidence.speaker) cost += (1 - duration) * 18;
+    if (length < 30 && next && !evidence.speaker && !evidence.sentence) cost += (30 - length) * 0.7;
+    if (length < 24 && !next) cost += (24 - length) * 1.5;
+    if (length > 72) cost += (length - 72) * 0.35;
+    if (length > 84) cost += (length - 84) * 1.4;
+    if (duration > 6) cost += (duration - 6) * 5;
+    if (duration > 7) cost += (duration - 7) * 9;
+    if (INCOMPLETE_CAPTION_ENDING.test(text) && next) cost += 22;
+
+    if (evidence.speaker) cost -= 36;
+    if (evidence.sentence) cost -= 28;
+    else if (evidence.pause >= 1.4) cost -= 24;
+    else if (evidence.pause >= 0.8) cost -= 18;
+    else if (evidence.pause >= 0.35 && evidence.turn) cost -= 11;
+    if (evidence.clause && length >= 36) cost -= 7;
+    if (evidence.semantic > 0 && length >= 24) cost -= evidence.semantic;
+    if (evidence.semantic < 0) cost += Math.abs(evidence.semantic);
+    if (next && length < 36 && duration < 2.5 && !evidence.speaker && !evidence.sentence && evidence.pause < 0.8) {
+      cost += 12;
+    }
+    return cost;
+  };
+
+  const displayBoundaryKind = (current, next, text) => {
+    if (!next) return "end";
+    if (next.speakerBreak) return "speaker";
+    if (captionEndsSentence(text)) return "sentence";
+    if (captionPause(current, next) >= 0.8) return "pause";
+    return "forced";
+  };
+
+  const segmentAutomaticDisplayCues = (atoms, {
+    hardMaxDuration = 10,
+    hardMaxLength = 120,
+    maxAtomsPerCue = 80,
+  } = {}) => {
+    const ordered = [...(atoms || [])]
+      .filter((atom) => atom?.text && Number.isFinite(atom.start))
+      .sort((left, right) => left.start - right.start);
+    if (!ordered.length) return [];
+
+    const best = Array(ordered.length + 1).fill(Number.POSITIVE_INFINITY);
+    const previous = Array(ordered.length + 1).fill(null);
+    best[0] = 0;
+
+    for (let startIndex = 0; startIndex < ordered.length; startIndex += 1) {
+      if (!Number.isFinite(best[startIndex])) continue;
+      let text = "";
+      let end = ordered[startIndex].end;
+      const maximumIndex = Math.min(ordered.length, startIndex + maxAtomsPerCue);
+      for (let endIndex = startIndex; endIndex < maximumIndex; endIndex += 1) {
+        const atom = ordered[endIndex];
+        text = joinCaptionText(text, atom.text);
+        end = Math.max(end, atom.end);
+        const duration = end - ordered[startIndex].start;
+        const indivisible = endIndex === startIndex;
+        if (!indivisible && (duration > hardMaxDuration || text.length > hardMaxLength)) break;
+        const next = ordered[endIndex + 1] || null;
+        const cost = best[startIndex] + displaySegmentCost({
+          text,
+          start: ordered[startIndex].start,
+          end,
+          current: atom,
+          next,
+        });
+        if (cost < best[endIndex + 1]) {
+          best[endIndex + 1] = cost;
+          previous[endIndex + 1] = {
+            startIndex,
+            endIndex,
+            start: ordered[startIndex].start,
+            end,
+            text,
+            boundary: displayBoundaryKind(atom, next, text),
+          };
+        }
+      }
+    }
+
+    if (!previous[ordered.length]) {
+      return ordered.map((atom, index) => ({
+        start: atom.start,
+        end: atom.end,
+        text: atom.text,
+        boundary: displayBoundaryKind(atom, ordered[index + 1] || null, atom.text),
+      }));
+    }
+
+    const cues = [];
+    let cursor = ordered.length;
+    while (cursor > 0) {
+      const segment = previous[cursor];
+      if (!segment) break;
+      cues.unshift({ start: segment.start, end: segment.end, text: segment.text, boundary: segment.boundary });
+      cursor = segment.startIndex;
+    }
+    return cues;
+  };
+
+  const groupSemanticCues = (displayCues, {
+    semanticHardMaxDuration = 22,
+    semanticHardMaxLength = 180,
+  } = {}) => {
+    const cues = [];
+    let current = null;
+    const flush = () => {
+      if (!current?.text) return;
+      cues.push({
+        start: current.start,
+        end: current.end,
+        text: current.text,
+        parts: current.parts,
+      });
+      current = null;
+    };
+
+    for (const cue of displayCues || []) {
+      if (!current) {
+        current = { start: cue.start, end: cue.end, text: cue.text, parts: [cue.text] };
+      } else {
+        const nextText = joinCaptionText(current.text, cue.text);
+        const nextEnd = Math.max(current.end, cue.end);
+        if (
+          nextEnd - current.start > semanticHardMaxDuration
+          || nextText.length > semanticHardMaxLength
+        ) {
+          flush();
+          current = { start: cue.start, end: cue.end, text: cue.text, parts: [cue.text] };
+        } else {
+          current.text = nextText;
+          current.end = nextEnd;
+          current.parts.push(cue.text);
+        }
+      }
+      if (["speaker", "sentence", "pause", "end"].includes(cue.boundary)) flush();
+    }
+    flush();
+    return cues;
+  };
+
+  const segmentYouTubeAutoCues = (cues, options = {}) => {
+    const atoms = prepareAutomaticCueAtoms(cues);
+    const displayCues = segmentAutomaticDisplayCues(atoms, options);
+    const semanticCues = groupSemanticCues(displayCues, options);
+    return { displayCues, semanticCues };
+  };
+
   const parseYouTubeTimedText = (body) => {
     const cues = [];
     try {
@@ -466,6 +780,7 @@
     constructor(log) {
       this.log = log;
       this.cues = new Map();
+      this.semanticCues = new Map();
       this.mediaKey = "";
       this.preferredSource = "";
     }
@@ -476,40 +791,93 @@
       const nextMediaKey = String(resource.mediaKey || "");
       if (nextMediaKey && this.mediaKey && nextMediaKey !== this.mediaKey) {
         this.cues.clear();
+        this.semanticCues.clear();
         this.preferredSource = "";
         this.log.add("timeline-reset", { from: this.mediaKey, to: nextMediaKey });
       }
       if (nextMediaKey) this.mediaKey = nextMediaKey;
       let cues = [];
+      let semanticCues = [];
       let format = "manifest";
       if (value.includes("webvtt") || value.includes("text/vtt") || /\.vtt(?:\?|$)/i.test(resource.url)) {
         cues = parseWebVtt(resource.body);
+        semanticCues = cues;
         format = "WebVTT";
       } else if (/youtube\.com\/api\/timedtext|youtube-nocookie\.com\/api\/timedtext/i.test(resource.url) || header.includes('"events"')) {
         const isJson3 = header.startsWith("{") || header.startsWith(")]}'") || value.includes("application/json");
-        cues = isJson3 ? parseYouTubeJson3(resource.body) : parseYouTubeTimedText(resource.body);
+        const sourceCues = isJson3 ? parseYouTubeJson3(resource.body) : parseYouTubeTimedText(resource.body);
         const isAutomatic = resource.captionKind === "asr";
-        cues = aggregateYouTubeCues(cues, { incremental: isAutomatic });
+        if (isAutomatic) {
+          const segmented = segmentYouTubeAutoCues(sourceCues);
+          cues = segmented.displayCues;
+          semanticCues = segmented.semanticCues;
+        } else {
+          cues = sourceCues;
+          semanticCues = aggregateYouTubeCues(sourceCues).map((cue) => ({
+            ...cue,
+            parts: sourceCues
+              .filter((part) => part.start < cue.end && part.end > cue.start)
+              .map((part) => part.text),
+          }));
+        }
         format = isAutomatic ? "YouTube Auto" : "YouTube Captions";
-        if (cues.length) this.preferredSource = format;
       } else if (value.includes("ttml") || value.includes("<tt") || /\.(ttml|dfxp)(?:\?|$)/i.test(resource.url)) {
         cues = parseTtml(resource.body);
+        semanticCues = cues;
         format = "TTML";
+      }
+
+      const youtubeRank = (source) => source === "YouTube Captions" ? 2 : source === "YouTube Auto" ? 1 : 0;
+      const incomingYouTubeRank = youtubeRank(format);
+      const currentYouTubeRank = youtubeRank(this.preferredSource);
+      if (incomingYouTubeRank && !cues.length && currentYouTubeRank) {
+        return {
+          format: this.preferredSource,
+          cueCount: this.cues.size,
+          semanticCueCount: this.semanticCues.size,
+          ignored: true,
+        };
+      }
+      if (incomingYouTubeRank && currentYouTubeRank > incomingYouTubeRank) {
+        this.log.add("network-resource-ignored", {
+          format,
+          reason: "lower-priority-youtube-track",
+          url: String(resource.url || "").slice(0, 240),
+        });
+        return {
+          format: this.preferredSource,
+          cueCount: this.cues.size,
+          semanticCueCount: this.semanticCues.size,
+          ignored: true,
+        };
+      }
+      if (incomingYouTubeRank && cues.length) {
+        this.cues.clear();
+        this.semanticCues.clear();
+        this.preferredSource = format;
       }
 
       for (const cue of cues) {
         this.cues.set(`${cue.start}:${cue.end}:${PST.hash(cue.text)}`, { ...cue, source: format });
       }
+      for (const cue of semanticCues) {
+        this.semanticCues.set(`${cue.start}:${cue.end}:${PST.hash(cue.text)}`, { ...cue, source: format });
+      }
       if (this.cues.size > 4000) {
         const ordered = [...this.cues.entries()].sort((left, right) => left[1].start - right[1].start);
         this.cues = new Map(ordered.slice(-3000));
       }
+      if (this.semanticCues.size > 4000) {
+        const ordered = [...this.semanticCues.entries()].sort((left, right) => left[1].start - right[1].start);
+        this.semanticCues = new Map(ordered.slice(-3000));
+      }
       this.log.add("network-resource", {
         format,
         cueCount: cues.length,
+        semanticCueCount: semanticCues.length,
         url: String(resource.url || "").slice(0, 240),
       });
-      return { format, cueCount: cues.length };
+      return { format, cueCount: cues.length, semanticCueCount: semanticCues.length };
     }
 
     at(time) {
@@ -920,11 +1288,21 @@
 
     learningContext() {
       const video = this.dom.largestVideo()?.video || document.querySelector("video");
-      const timeline = [...this.timeline.cues.values()]
+      const displayTimeline = [...this.timeline.cues.values()]
         .map((cue) => ({
           start: cue.start,
           end: cue.end,
           text: cue.text,
+          source: cue.source || this.timeline.preferredSource || "Timeline",
+        }))
+        .filter((cue) => cue.text && Number.isFinite(cue.start))
+        .sort((left, right) => left.start - right.start);
+      const semanticTimeline = [...this.timeline.semanticCues.values()]
+        .map((cue) => ({
+          start: cue.start,
+          end: cue.end,
+          text: cue.text,
+          parts: Array.isArray(cue.parts) ? cue.parts : [cue.text],
           source: cue.source || this.timeline.preferredSource || "Timeline",
         }))
         .filter((cue) => cue.text && Number.isFinite(cue.start))
@@ -935,9 +1313,12 @@
         text: cue.text,
         source: cue.source,
       }));
+      const cues = semanticTimeline.length ? semanticTimeline : displayTimeline.length ? displayTimeline : history;
+      const displayCues = displayTimeline.length ? displayTimeline : history;
       return {
-        completeTimeline: timeline.length > 0,
-        cues: timeline.length ? timeline : history,
+        completeTimeline: displayTimeline.length > 0,
+        cues,
+        displayCues,
         currentTime: Number.isFinite(video?.currentTime) ? video.currentTime : 0,
         duration: Number.isFinite(video?.duration) ? video.duration : 0,
         paused: Boolean(video?.paused),
@@ -966,6 +1347,7 @@
   PST.splitLongCaptionText = splitLongCaptionText;
   PST.aggregateYouTubeCues = aggregateYouTubeCues;
   PST.aggregateYouTubeAutoCues = aggregateYouTubeAutoCues;
+  PST.segmentYouTubeAutoCues = segmentYouTubeAutoCues;
   PST.parseYouTubeTimedText = parseYouTubeTimedText;
   PST.findPreviousCueTarget = findPreviousCueTarget;
   PST.CueGapGuard = CueGapGuard;

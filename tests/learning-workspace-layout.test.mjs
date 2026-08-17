@@ -49,6 +49,13 @@ test("learning workspace centers enlarged subtitles without a current-sentence l
   assert.doesNotMatch(shell, /<span>当前句<\/span>/);
 });
 
+test("learning workspace renders short display cues while keeping semantic sentence context", () => {
+  assert.match(shell, /this\.displayCues = context\.displayCues \|\| this\.cues/);
+  assert.match(shell, /const cue = PST\.LearningModeCore\.cueAt\(this\.displayCues, time\)/);
+  assert.match(shell, /const semanticCue = PST\.LearningModeCore\.cueAt\(this\.cues, time\) \|\| cue/);
+  assert.match(shell, /this\.activeCue = semanticCue/);
+});
+
 test("learning workspace hides the subtitle line when the current time has no cue", () => {
   assert.match(shell, /class="current" aria-live="polite" hidden><p><\/p>/);
   assert.match(shell, /current\.closest\("\.current"\)\.hidden = !text/);

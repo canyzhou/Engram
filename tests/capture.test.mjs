@@ -25,7 +25,10 @@ const context = vm.createContext({
     BRIDGE_SOURCE: "paramount-subtitle-page-bridge",
     CONTENT_SOURCE: "paramount-subtitle-content",
     hash: (value) => String(value),
-    normalizeSubtitle: (value) => String(value || "").replace(/\s+/g, " ").trim(),
+    normalizeSubtitle: (value) => String(value || "")
+      .replace(/(?:>{2,}|＞{2,})/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
     parseTime: (value) => Number(value) || 0,
   },
 });
@@ -69,6 +72,28 @@ test("parses YouTube JSON3 captions into a video timeline", () => {
       { start: 4, end: 7, text: "Next line" },
     ],
   );
+});
+
+test("preserves YouTube word offsets and clamps overlapping event durations", () => {
+  const cues = context.ParamountSubtitles.parseYouTubeJson3(JSON.stringify({
+    events: [
+      {
+        tStartMs: 1_000,
+        dDurationMs: 5_000,
+        segs: [
+          { utf8: "Hello ", tOffsetMs: 0 },
+          { utf8: "world", tOffsetMs: 400 },
+        ],
+      },
+      { tStartMs: 2_500, dDurationMs: 1_000, segs: [{ utf8: "Next cue" }] },
+    ],
+  }));
+
+  assert.equal(cues[0].end, 2.5);
+  assert.deepEqual([...cues[0].atoms].map(({ start, end, text }) => ({ start, end, text })), [
+    { start: 1, end: 1.4, text: "Hello" },
+    { start: 1.4, end: 2.5, text: "world" },
+  ]);
 });
 
 test("ignores malformed YouTube JSON3 responses", () => {
@@ -222,6 +247,81 @@ test("keeps punctuation revisions without duplicating automatic captions", () =>
   assert.deepEqual([...result].map(({ text }) => text), ["hello world."]);
 });
 
+test("splits a lowercase unpunctuated automatic caption into readable display cues", () => {
+  const text = "yeah military style you know super narrow and how do you like flying the katana I like it you like it nice and tight yeah";
+  const result = context.ParamountSubtitles.segmentYouTubeAutoCues([
+    { start: 92, end: 105, text },
+  ]);
+
+  assert.deepEqual([...result.displayCues].map((cue) => cue.text), [
+    "yeah military style you know super narrow",
+    "and how do you like flying the katana",
+    "I like it you like it nice and tight yeah",
+  ]);
+  assert.ok(result.displayCues.every((cue) => cue.text.length <= 84));
+  assert.equal(result.displayCues.map((cue) => cue.text).join(" "), text);
+  assert.equal(result.semanticCues.map((cue) => cue.text).join(" "), text);
+});
+
+test("keeps semantic phrases intact across long automatic-caption events", () => {
+  const sourceCues = [
+    { start: 15, end: 31, text: "Landscapes a reminder of the wild untap world that Still Remains beyond the reach of modern civilization twice the size" },
+    { start: 31, end: 42, text: "of Texas yet home to fewer than 750,000 people Alaska's vast expanses are connected by few roads making it the perfect" },
+    { start: 42, end: 54, text: "destination for adventurers seeking to explore nature in its Ross most inspiring form and to us it is a state with a" },
+    { start: 54, end: 57, text: "special place in our hearts that we were fortunate enough to call home for three" },
+    { start: 57, end: 72, text: "Unforgettable years right after college join us as we return to explore Alaska on an unforgettable 10day road trip based out of the state's largest city" },
+  ];
+  const result = context.ParamountSubtitles.segmentYouTubeAutoCues(sourceCues);
+  const displayTexts = [...result.displayCues].map((cue) => cue.text);
+  const semanticTexts = [...result.semanticCues].map((cue) => cue.text);
+
+  assert.ok(displayTexts.includes("twice the size of Texas yet home to fewer than 750,000 people"));
+  assert.ok(displayTexts.includes("that Still Remains beyond the reach of modern civilization"));
+  assert.ok(displayTexts.includes("that we were fortunate enough to call home for three Unforgettable years right after college"));
+  assert.ok(displayTexts.includes("join us as we return to explore Alaska on an unforgettable 10day road trip"));
+  assert.ok(displayTexts.every((text) => !/^(?:of|destination|enough|trip)\b/i.test(text)));
+  assert.ok(semanticTexts.every((text) => !/^(?:of|destination|enough|trip)\b/i.test(text)));
+  assert.equal(displayTexts.join(" "), sourceCues.map((cue) => cue.text).join(" "));
+  assert.equal(semanticTexts.join(" "), sourceCues.map((cue) => cue.text).join(" "));
+});
+
+test("uses lowercase pauses and speaker markers as automatic-caption boundaries", () => {
+  const body = JSON.stringify({
+    events: [
+      { tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: "we should start with engine checks" }] },
+      { tStartMs: 3_000, dDurationMs: 2_000, segs: [{ utf8: ">> yeah that makes sense" }] },
+    ],
+  });
+  const parsed = context.ParamountSubtitles.parseYouTubeJson3(body);
+  const result = context.ParamountSubtitles.segmentYouTubeAutoCues(parsed);
+
+  assert.equal(parsed[1].speakerBreak, true);
+  assert.deepEqual([...result.displayCues].map((cue) => cue.text), [
+    "we should start with engine checks",
+    "yeah that makes sense",
+  ]);
+  assert.deepEqual([...result.semanticCues].map((cue) => cue.text), [
+    "we should start with engine checks",
+    "yeah that makes sense",
+  ]);
+});
+
+test("keeps one semantic sentence across multiple readable display cues", () => {
+  const sentence = "It is a bit embarrassing to admit but in cybersecurity the small gaps are often the most dangerous ones.";
+  const result = context.ParamountSubtitles.segmentYouTubeAutoCues(
+    sentence.split(" ").map((text, index) => ({
+      start: index * 0.65,
+      end: (index * 0.65) + 1.1,
+      text,
+    })),
+  );
+
+  assert.ok(result.displayCues.length > 1);
+  assert.equal(result.semanticCues.length, 1);
+  assert.equal(result.semanticCues[0].text, sentence);
+  assert.deepEqual([...result.semanticCues[0].parts], [...result.displayCues].map((cue) => cue.text));
+});
+
 test("resegments a complete authored YouTube track across cue boundaries", () => {
   const capture = new context.ParamountSubtitles.CaptureCoordinator();
   const result = capture.timeline.ingest({
@@ -241,9 +341,72 @@ test("resegments a complete authored YouTube track across cue boundaries", () =>
   assert.equal(result.format, "YouTube Captions");
   assert.equal(capture.timeline.preferredSource, "YouTube Captions");
   assert.deepEqual([...capture.timeline.cues.values()].map(({ text }) => text), [
+    "We moved to Acme Inc.",
+    "headquarters yesterday.",
+    "Then we left.",
+  ]);
+  assert.deepEqual([...capture.timeline.semanticCues.values()].map(({ text }) => text), [
     "We moved to Acme Inc. headquarters yesterday.",
     "Then we left.",
   ]);
+  const firstSemanticCue = [...capture.timeline.semanticCues.values()][0];
+  assert.deepEqual([...firstSemanticCue.parts], [
+    "We moved to Acme Inc.",
+    "headquarters yesterday.",
+  ]);
+});
+
+test("atomically replaces repeated YouTube track snapshots", () => {
+  const capture = new context.ParamountSubtitles.CaptureCoordinator();
+  const resource = {
+    captionKind: "asr",
+    contentType: "application/json",
+    mediaKey: "youtube:repeated-track",
+    url: "https://www.youtube.com/api/timedtext?v=repeated-track&fmt=json3&kind=asr",
+  };
+
+  capture.timeline.ingest({
+    ...resource,
+    body: JSON.stringify({
+      events: [{ tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: "old segmented timeline" }] }],
+    }),
+  });
+  capture.timeline.ingest({
+    ...resource,
+    body: JSON.stringify({
+      events: [{ tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: "fresh timeline" }] }],
+    }),
+  });
+
+  assert.deepEqual([...capture.timeline.cues.values()].map(({ text }) => text), ["fresh timeline"]);
+  assert.deepEqual([...capture.timeline.semanticCues.values()].map(({ text }) => text), ["fresh timeline"]);
+});
+
+test("does not replace authored YouTube captions with an automatic track", () => {
+  const capture = new context.ParamountSubtitles.CaptureCoordinator();
+  const resource = {
+    contentType: "application/json",
+    mediaKey: "youtube:authored-priority",
+    url: "https://www.youtube.com/api/timedtext?v=authored-priority&fmt=json3",
+  };
+  capture.timeline.ingest({
+    ...resource,
+    captionKind: "subtitles",
+    body: JSON.stringify({
+      events: [{ tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: "authored caption" }] }],
+    }),
+  });
+  const result = capture.timeline.ingest({
+    ...resource,
+    captionKind: "asr",
+    body: JSON.stringify({
+      events: [{ tStartMs: 0, dDurationMs: 2_000, segs: [{ utf8: "automatic replacement" }] }],
+    }),
+  });
+
+  assert.equal(result.ignored, true);
+  assert.equal(capture.timeline.preferredSource, "YouTube Captions");
+  assert.deepEqual([...capture.timeline.cues.values()].map(({ text }) => text), ["authored caption"]);
 });
 
 test("ignores TextTrack fragments after the complete YouTube timeline is ready", () => {
@@ -275,6 +438,10 @@ test("exports a sorted, bounded learning context from the captured timeline", ()
   assert.equal(learning.currentTime, 12);
   assert.equal(learning.duration, 90);
   assert.equal(learning.paused, false);
+  assert.deepEqual([...learning.displayCues].map(({ start, text }) => ({ start, text })), [
+    { start: 5, text: "First cue" },
+    { start: 20, text: "Later cue" },
+  ]);
   assert.deepEqual([...learning.cues].map(({ start, text }) => ({ start, text })), [
     { start: 5, text: "First cue" },
     { start: 20, text: "Later cue" },

@@ -35,13 +35,19 @@
 
   const getLearningContext = () => {
     const learning = capture.learningContext();
+    const translatedCue = (cue) => {
+      const parts = Array.isArray(cue.parts) && cue.parts.length ? cue.parts : [cue.text];
+      const translation = parts
+        .map((part) => cueTranslations.get(PST.normalizeSubtitle(part)) || "")
+        .filter(Boolean)
+        .join(" ");
+      return { ...cue, translation };
+    };
     return {
       ok: true,
       completeTimeline: learning.completeTimeline,
-      cues: learning.cues.map((cue) => ({
-        ...cue,
-        translation: cueTranslations.get(PST.normalizeSubtitle(cue.text)) || "",
-      })),
+      cues: learning.cues.map(translatedCue),
+      displayCues: learning.displayCues.map(translatedCue),
       video: {
         ...readVideoMetadata(),
         duration: learning.duration,
