@@ -24,7 +24,7 @@
     "service_worker": "src/service-worker.js"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://www.youtube.com https://www.youtube-nocookie.com"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:8787 https://api.deepgram.com wss://api.deepgram.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com"
   },
   "permissions": [
     "activeTab",
@@ -32,6 +32,7 @@
   ],
   "host_permissions": [
     "https://api.dictionaryapi.dev/*",
+    "https://api.deepgram.com/*",
     "http://127.0.0.1:8787/*",
     "https://translate.googleapis.com/*"
   ],
@@ -92,7 +93,9 @@
         "src/namespace.js",
         "src/learning-site-adapters.js",
         "src/learning-mode-core.js",
-        "src/learning-history-core.js"
+        "src/learning-history-core.js",
+        "src/discussion-stt.js",
+        "src/discussion-tts.js"
       ],
       "matches": [
         "https://paramountplus.com/*",

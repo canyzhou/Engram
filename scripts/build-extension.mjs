@@ -43,6 +43,8 @@ export const EXTENSION_FILES = [
   "src/capture.js",
   "src/content.js",
   "src/dictionary.js",
+  "src/discussion-stt.js",
+  "src/discussion-tts.js",
   "src/i18n.js",
   "src/learning-history-core.js",
   "src/learning-site-adapters.js",

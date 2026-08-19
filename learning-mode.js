@@ -157,10 +157,10 @@
     panels: [...document.querySelectorAll(".tab-panel")],
     analysisLoading: document.querySelector("#analysis-loading"),
     analysisError: document.querySelector("#analysis-error"),
+    analysisStatusLabel: document.querySelector("#analysis-status-label"),
     analysisErrorTitle: document.querySelector("#analysis-error-title"),
     analysisErrorMessage: document.querySelector("#analysis-error-message"),
     analysisContent: document.querySelector("#analysis-content"),
-    retryAnalysis: document.querySelector("#retry-analysis"),
     refreshAnalysis: document.querySelector("#refresh-analysis"),
     recommendationCard: document.querySelector("#recommendation-card"),
     recommendationTitle: document.querySelector("#recommendation-title"),
@@ -207,6 +207,12 @@
     discussionMessages: document.querySelector("#discussion-messages"),
     discussionForm: document.querySelector("#discussion-form"),
     discussionInput: document.querySelector("#discussion-input"),
+    discussionSend: document.querySelector("#discussion-send"),
+    discussionMicrophone: document.querySelector("#discussion-microphone"),
+    discussionAutoSpeak: document.querySelector("#discussion-auto-speak"),
+    voiceInputStatus: document.querySelector("#voice-input-status"),
+    voiceInputDuration: document.querySelector("#voice-input-duration"),
+    voicePrivacyDialog: document.querySelector("#voice-privacy-dialog"),
     requestHint: document.querySelector("#request-hint"),
   };
 
@@ -227,12 +233,29 @@
     messages: [],
     previewTimer: 0,
     playbackTimer: 0,
+    voicePreviewTimer: 0,
+    voiceInputState: "idle",
+    speechOutputState: "idle",
+    autoSpeak: true,
+    voicePrivacyAcknowledged: false,
+    voicePrefix: "",
+    voiceSuffix: "",
+    voiceFinalParts: [],
+    voiceInterim: "",
+    voiceSessionDuration: 0,
+    sttSeconds: 0,
+    ttsCharacters: 0,
+    activeSpeechArticle: null,
     contextRetrying: false,
     playerReady: false,
     destroyed: false,
   };
 
   const extensionUnavailableMessage = "扩展已更新，请刷新页面后重试。";
+  const VOICE_SESSION_SECONDS_LIMIT = 900;
+  const TTS_SESSION_CHARACTER_LIMIT = 12_000;
+  let speechToText = null;
+  let textToSpeech = null;
 
   const extensionStorage = (area) => {
     try {
@@ -279,6 +302,244 @@
     }
   };
 
+  const getVoiceAccessToken = async () => {
+    const response = await sendMessage({ type: "CREATE_VOICE_TOKEN" });
+    if (!response?.ok || !response.accessToken) {
+      throw new Error(response?.error || "语音服务尚未配置");
+    }
+    return { accessToken: response.accessToken, expiresIn: response.expiresIn };
+  };
+
+  const formatVoiceDuration = (seconds) => {
+    const safe = Math.max(0, Math.floor(Number(seconds) || 0));
+    return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, "0")}`;
+  };
+
+  const voiceStatusCopy = (status, detail) => ({
+    idle: "可键入，也可点击麦克风用英语回答",
+    requesting_permission: "正在请求麦克风权限…",
+    connecting: "正在连接语音识别…",
+    listening: "正在聆听，点击麦克风结束",
+    finalizing: "正在整理最后一句…",
+    unavailable: detail?.message || "当前设备不支持语音输入",
+    error: detail?.message || "语音识别暂时不可用，可继续键入",
+  }[status] || "可键入，也可点击麦克风用英语回答");
+
+  const renderVoiceInputState = (status, detail) => {
+    state.voiceInputState = status;
+    const active = ["requesting_permission", "connecting", "listening", "finalizing"].includes(status);
+    const listening = status === "listening";
+    elements.voiceInputStatus.dataset.state = status;
+    elements.voiceInputStatus.querySelector("span").textContent = voiceStatusCopy(status, detail);
+    elements.discussionMicrophone.setAttribute("aria-pressed", String(listening));
+    elements.discussionMicrophone.setAttribute("aria-label", active ? "结束语音输入" : "开始语音输入");
+    elements.discussionInput.dataset.voiceActive = String(active);
+    elements.discussionInput.readOnly = active;
+    elements.discussionSend.disabled = active;
+    elements.requestHint.disabled = active;
+    if (!active && status !== "error") {
+      elements.voiceInputDuration.textContent = "";
+      elements.voiceInputDuration.removeAttribute("datetime");
+    }
+  };
+
+  const setVoiceDuration = (seconds) => {
+    state.voiceSessionDuration = Math.max(0, Number(seconds) || 0);
+    elements.voiceInputDuration.textContent = formatVoiceDuration(state.voiceSessionDuration);
+    elements.voiceInputDuration.setAttribute("datetime", `PT${Math.floor(state.voiceSessionDuration)}S`);
+  };
+
+  const updateSpeechButtons = () => {
+    document.querySelectorAll(".message-speak-button").forEach((button) => {
+      const active = button.closest(".message") === state.activeSpeechArticle;
+      const status = active ? state.speechOutputState : "idle";
+      button.dataset.state = status;
+      button.setAttribute("aria-pressed", String(active && ["loading", "speaking"].includes(status)));
+      const label = button.querySelector("span");
+      if (label) label.textContent = status === "loading" ? "加载中" : status === "speaking" ? "停止" : "朗读";
+      button.setAttribute("aria-label", status === "speaking" ? "停止朗读这条回复" : "朗读这条回复");
+    });
+  };
+
+  const setSpeechOutputState = (status) => {
+    state.speechOutputState = status;
+    updateSpeechButtons();
+  };
+
+  const cancelSpeech = () => {
+    clearTimeout(state.voicePreviewTimer);
+    state.voicePreviewTimer = 0;
+    textToSpeech?.cancel?.();
+    state.speechOutputState = "idle";
+    state.activeSpeechArticle = null;
+    updateSpeechButtons();
+  };
+
+  const insertVoiceTranscript = () => {
+    const spoken = [...state.voiceFinalParts, state.voiceInterim].map((part) => part.trim()).filter(Boolean).join(" ");
+    const left = spoken && state.voicePrefix && !/\s$/.test(state.voicePrefix) ? `${state.voicePrefix} ` : state.voicePrefix;
+    const right = spoken && state.voiceSuffix && !/^\s/.test(state.voiceSuffix) ? ` ${state.voiceSuffix}` : state.voiceSuffix;
+    const maximum = Number(elements.discussionInput.maxLength) || 1200;
+    const nextValue = `${left}${spoken}${right}`.slice(0, maximum);
+    elements.discussionInput.value = nextValue;
+    const cursor = Math.min(nextValue.length, left.length + spoken.length);
+    elements.discussionInput.setSelectionRange(cursor, cursor);
+  };
+
+  const captureVoiceInsertionPoint = () => {
+    const value = elements.discussionInput.value;
+    const start = Math.max(0, elements.discussionInput.selectionStart || 0);
+    const end = Math.max(start, elements.discussionInput.selectionEnd || start);
+    state.voicePrefix = value.slice(0, start);
+    state.voiceSuffix = value.slice(end);
+    state.voiceFinalParts = [];
+    state.voiceInterim = "";
+    state.voiceSessionDuration = 0;
+  };
+
+  const stopVoiceInput = async ({ abort = false } = {}) => {
+    clearTimeout(state.voicePreviewTimer);
+    state.voicePreviewTimer = 0;
+    if (previewMode) {
+      if (!abort && ["listening", "connecting"].includes(state.voiceInputState)) {
+        renderVoiceInputState("finalizing");
+        await new Promise((resolve) => {
+          state.voicePreviewTimer = setTimeout(resolve, 260);
+        });
+        state.voiceFinalParts = ["I would love to visit Iceland because the landscape feels completely different from home."];
+        state.voiceInterim = "";
+        insertVoiceTranscript();
+        state.sttSeconds += Math.max(0, state.voiceSessionDuration);
+      }
+      renderVoiceInputState("idle");
+      return;
+    }
+    if (!speechToText) return;
+    if (abort) speechToText.abort();
+    else {
+      await speechToText.stop();
+      state.sttSeconds += Math.max(0, state.voiceSessionDuration);
+    }
+  };
+
+  const requestVoicePrivacy = () => {
+    if (state.voicePrivacyAcknowledged) return Promise.resolve(true);
+    if (typeof elements.voicePrivacyDialog.showModal !== "function") return Promise.resolve(false);
+    elements.voicePrivacyDialog.showModal();
+    return new Promise((resolve) => {
+      elements.voicePrivacyDialog.addEventListener("close", () => {
+        const confirmed = elements.voicePrivacyDialog.returnValue === "confirm";
+        if (confirmed) {
+          state.voicePrivacyAcknowledged = true;
+          writeExtensionStorage("local", { discussionVoicePrivacyAcknowledged: true }).catch(() => undefined);
+        }
+        resolve(confirmed);
+      }, { once: true });
+    });
+  };
+
+  const startVoiceInput = async () => {
+    if (state.sttSeconds >= VOICE_SESSION_SECONDS_LIMIT) {
+      renderVoiceInputState("error", { message: "本次学习的语音输入已达 15 分钟上限" });
+      return;
+    }
+    if (!await requestVoicePrivacy()) return;
+    cancelSpeech();
+    setPlaying(false);
+    captureVoiceInsertionPoint();
+    if (previewMode) {
+      renderVoiceInputState("connecting");
+      state.voicePreviewTimer = setTimeout(() => {
+        if (state.voiceInputState !== "connecting") return;
+        renderVoiceInputState("listening");
+        setVoiceDuration(0);
+      }, 180);
+      return;
+    }
+    if (!speechToText?.isSupported?.()) {
+      renderVoiceInputState("unavailable");
+      return;
+    }
+    try {
+      await speechToText.start();
+    } catch (error) {
+      renderVoiceInputState("error", error);
+    }
+  };
+
+  const toggleVoiceInput = async () => {
+    if (["requesting_permission", "connecting", "listening"].includes(state.voiceInputState)) {
+      await stopVoiceInput();
+      return;
+    }
+    if (state.voiceInputState === "finalizing") return;
+    await startVoiceInput();
+  };
+
+  const createVoiceControllers = () => {
+    if (previewMode) return;
+    speechToText = PST.DiscussionSTT?.create({
+      getAccessToken: getVoiceAccessToken,
+      onStateChange: renderVoiceInputState,
+      onInterim: (text) => {
+        state.voiceInterim = String(text || "");
+        insertVoiceTranscript();
+      },
+      onFinal: (text) => {
+        if (String(text || "").trim()) state.voiceFinalParts.push(String(text).trim());
+        state.voiceInterim = "";
+        insertVoiceTranscript();
+      },
+      onDuration: setVoiceDuration,
+      onLimit: () => renderVoiceInputState("finalizing", { message: "单次录音已达 2 分钟，正在整理文字" }),
+    });
+    textToSpeech = PST.DiscussionTTS?.create({
+      getAccessToken: getVoiceAccessToken,
+      onStateChange: setSpeechOutputState,
+      onUsage: (characters) => { state.ttsCharacters += Math.max(0, Number(characters) || 0); },
+      onError: (error) => renderVoiceInputState("error", error),
+    });
+  };
+
+  const speakMessage = async (article, text) => {
+    if (!article || !String(text || "").trim()) return;
+    if (state.voiceInputState !== "idle" && state.voiceInputState !== "error") return;
+    if (state.activeSpeechArticle === article && ["loading", "speaking"].includes(state.speechOutputState)) {
+      cancelSpeech();
+      return;
+    }
+    if (state.ttsCharacters + String(text).length > TTS_SESSION_CHARACTER_LIMIT) {
+      renderVoiceInputState("error", { message: "本次学习的朗读已达字符上限" });
+      return;
+    }
+    cancelSpeech();
+    setPlaying(false);
+    state.activeSpeechArticle = article;
+    setSpeechOutputState("loading");
+    if (previewMode) {
+      state.voicePreviewTimer = setTimeout(() => {
+        setSpeechOutputState("speaking");
+        state.voicePreviewTimer = setTimeout(() => {
+          state.speechOutputState = "idle";
+          state.activeSpeechArticle = null;
+          updateSpeechButtons();
+        }, 900);
+      }, 180);
+      return;
+    }
+    if (!textToSpeech?.isSupported?.()) {
+      renderVoiceInputState("error", { message: "当前设备暂不支持朗读" });
+      state.activeSpeechArticle = null;
+      setSpeechOutputState("idle");
+      return;
+    }
+    await textToSpeech.speak(text);
+    if (state.activeSpeechArticle === article) {
+      state.activeSpeechArticle = null;
+      setSpeechOutputState("idle");
+    }
+  };
+
   const openSource = () => {
     const url = state.context?.video?.url;
     if (!url) return;
@@ -294,6 +555,10 @@
   };
 
   const switchTab = (name) => {
+    if (name !== "discussion" && state.activeTab === "discussion") {
+      stopVoiceInput({ abort: true }).catch(() => undefined);
+      cancelSpeech();
+    }
     state.activeTab = name;
     for (const tab of elements.tabs) {
       const selected = tab.dataset.tab === name;
@@ -342,6 +607,10 @@
 
   const setPlaying = (playing, { command = true } = {}) => {
     state.playing = Boolean(playing);
+    if (state.playing) {
+      stopVoiceInput({ abort: true }).catch(() => undefined);
+      cancelSpeech();
+    }
     if (previewMode) {
       clearInterval(state.previewTimer);
       if (state.playing) {
@@ -513,20 +782,27 @@
     renderDiscussionOutline();
   };
 
-  const renderAnalysisStatus = ({ title, message, retryLabel = "重试分析" }) => {
+  const renderAnalysisStatus = ({
+    label = "AI 材料分析",
+    title,
+    message,
+    status = "loading",
+  }) => {
     elements.analysisLoading.hidden = true;
     elements.analysisContent.hidden = true;
     elements.analysisError.hidden = false;
+    elements.analysisError.dataset.state = status;
+    elements.analysisError.setAttribute("aria-busy", String(status === "loading"));
+    elements.analysisStatusLabel.textContent = label;
     elements.analysisErrorTitle.textContent = title;
     elements.analysisErrorMessage.textContent = message;
-    elements.retryAnalysis.textContent = retryLabel;
   };
 
   const renderSubtitlePending = (message = "正在从当前视频读取英文字幕；字幕准备好后会自动开始分析。") => {
     renderAnalysisStatus({
+      label: "正在读取字幕",
       title: "正在读取英文字幕",
       message,
-      retryLabel: "重新检测",
     });
   };
 
@@ -535,11 +811,12 @@
     const explicit = availability.state === "unavailable";
     const loginHint = availability.needsLogin ? " 如果你尚未登录当前网站，可登录后重新检测。" : "";
     renderAnalysisStatus({
+      label: explicit ? "字幕不可用" : "等待英文字幕",
       title: explicit ? "此视频没有可用英文字幕" : "还没有读取到英文字幕",
       message: message || (explicit
         ? `当前网站没有为这个视频返回可用的英文字幕，因此暂时无法生成材料分析。${loginHint}`
         : "请确认视频已开始播放并选择英文字幕，然后重新检测。"),
-      retryLabel: "重新检测",
+      status: explicit ? "unavailable" : "loading",
     });
   };
 
@@ -647,10 +924,10 @@
   } = {}) => {
     state.analysis = null;
     renderAnalysisStatus({
-      title: "AI 分析未完成",
-      message: summary,
-      retryLabel: "重试分析",
+      title: "材料分析正在准备中",
+      message: "正在整理字幕、评估难度并提炼学习重点，请稍候。",
     });
+    elements.analysisError.dataset.detail = summary;
     renderDiscussionOutline();
   };
 
@@ -698,17 +975,31 @@
     }
   };
 
-  const appendMessage = ({ role, text, citation, feedback }) => {
+  const appendMessage = ({ role, text, citation, feedback, autoSpeak = false }) => {
     const article = document.createElement("article");
     article.className = "message";
     article.dataset.role = role;
+    const heading = document.createElement("div");
+    heading.className = "message-heading";
     const roleLabel = document.createElement("span");
     roleLabel.className = "message-role";
     roleLabel.textContent = role === "user" ? "你" : "AI 老师";
+    heading.append(roleLabel);
+    if (role === "assistant") {
+      const speakButton = document.createElement("button");
+      speakButton.className = "message-speak-button";
+      speakButton.type = "button";
+      speakButton.dataset.state = "idle";
+      speakButton.setAttribute("aria-label", "朗读这条回复");
+      speakButton.setAttribute("aria-pressed", "false");
+      speakButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6 7 10H4v4h3l4 4Z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a8 8 0 0 1 0 11"/></svg><span>朗读</span>';
+      speakButton.addEventListener("click", () => speakMessage(article, text));
+      heading.append(speakButton);
+    }
     const body = document.createElement("div");
     body.className = "message-body";
     body.textContent = text;
-    article.append(roleLabel, body);
+    article.append(heading, body);
     if (citation && Number.isFinite(Number(citation.timestamp))) {
       const citationButton = document.createElement("button");
       citationButton.className = "citation-button";
@@ -725,6 +1016,8 @@
     }
     elements.discussionMessages.append(article);
     elements.discussionMessages.scrollTop = elements.discussionMessages.scrollHeight;
+    if (role === "assistant" && autoSpeak && state.autoSpeak) speakMessage(article, text).catch(() => undefined);
+    return article;
   };
 
   const getDiscussionPlan = () => {
@@ -785,17 +1078,22 @@
       && state.discussionPlan.length > 0;
     elements.discussionUnavailable.hidden = discussionAvailable;
     if (!discussionAvailable) {
-      elements.discussionUnavailableLabel.textContent = subtitleUnavailable ? "字幕不可用" : "讨论暂不可用";
+      const discussionPending = !subtitleUnavailable && !state.analysis;
+      elements.discussionUnavailable.dataset.state = discussionPending ? "loading" : "unavailable";
+      elements.discussionUnavailable.setAttribute("aria-busy", String(discussionPending));
+      elements.discussionUnavailableLabel.textContent = subtitleUnavailable
+        ? "字幕不可用"
+        : discussionPending ? "AI 讨论准备中" : "讨论说明";
       elements.discussionUnavailableTitle.textContent = subtitleUnavailable
         ? "此视频没有可用英文字幕"
-        : state.analysis ? "这份材料不生成讨论课" : "讨论尚未准备好";
+        : state.analysis ? "这份材料不生成讨论课" : "正在生成讨论提纲";
       elements.discussionUnavailableMessage.textContent = subtitleUnavailable
         ? "没有字幕证据，无法生成可靠的讨论问题。"
         : recommendation === "extensive_viewing"
           ? "这份材料更适合泛看，不生成完整讨论课。"
           : state.analysis
             ? "当前学习建议不是精学，仍可继续观看或查看字幕。"
-            : "字幕和材料分析完成后，讨论提纲会在这里出现。";
+            : "材料分析完成后，AI 会根据视频内容整理讨论问题，请稍候。";
       elements.discussionOutline.hidden = true;
       elements.discussionStartActions.hidden = true;
       elements.discussionSession.hidden = true;
@@ -819,6 +1117,8 @@
   };
 
   const resetDiscussionSession = () => {
+    stopVoiceInput({ abort: true }).catch(() => undefined);
+    cancelSpeech();
     state.discussionActive = false;
     state.discussionPhase = "outline";
     state.discussionQuestionIndex = 0;
@@ -837,6 +1137,9 @@
     if (state.analysis?.suitability?.finalRecommendation !== "intensive_study") return;
     state.discussionPlan = getDiscussionPlan();
     if (!state.discussionPlan.length) return;
+    setPlaying(false);
+    stopVoiceInput({ abort: true }).catch(() => undefined);
+    cancelSpeech();
     state.discussionActive = true;
     state.discussionPhase = "question";
     state.discussionQuestionIndex = 0;
@@ -849,7 +1152,7 @@
     elements.discussionIntro.hidden = false;
     const openingQuestion = state.discussionPlan[0].text;
     state.messages.push({ role: "assistant", content: openingQuestion });
-    appendMessage({ role: "assistant", text: openingQuestion });
+    appendMessage({ role: "assistant", text: openingQuestion, autoSpeak: true });
     updateDiscussionProgress();
     elements.progress.textContent = "2";
     elements.discussionInput.focus();
@@ -893,8 +1196,12 @@
   };
 
   const runDiscussion = async ({ hint = false } = {}) => {
+    await stopVoiceInput({ abort: true });
+    cancelSpeech();
     elements.discussionInput.disabled = true;
     elements.requestHint.disabled = true;
+    elements.discussionMicrophone.disabled = true;
+    elements.discussionSend.disabled = true;
     try {
       const result = await requestDiscussion({ hint });
       let text = result.reply || result.question || "";
@@ -917,13 +1224,15 @@
       }
       state.messages.push({ role: "assistant", content: text });
       state.messages = state.messages.slice(-24);
-      appendMessage({ role: "assistant", text, citation: result.citation, feedback: result.feedback });
+      appendMessage({ role: "assistant", text, citation: result.citation, feedback: result.feedback, autoSpeak: true });
       updateDiscussionProgress();
     } catch (error) {
       appendMessage({ role: "assistant", text: error?.message || "AI 讨论暂时不可用，请稍后再试。" });
     } finally {
       elements.discussionInput.disabled = false;
       elements.requestHint.disabled = false;
+      elements.discussionMicrophone.disabled = false;
+      elements.discussionSend.disabled = false;
       if (state.discussionPhase !== "complete") elements.discussionInput.focus();
     }
   };
@@ -999,10 +1308,23 @@
   };
 
   const initialize = async () => {
-    const storedLevel = hasExtensionApi
-      ? await readExtensionStorage("sync", { learnerLevel: "B1" })
-      : { learnerLevel: "B1" };
+    const [storedLevel, storedVoiceSettings, storedVoicePrivacy] = await Promise.all([
+      hasExtensionApi
+        ? readExtensionStorage("sync", { learnerLevel: "B1" })
+        : { learnerLevel: "B1" },
+      hasExtensionApi
+        ? readExtensionStorage("sync", { discussionAutoSpeak: true })
+        : { discussionAutoSpeak: true },
+      hasExtensionApi
+        ? readExtensionStorage("local", { discussionVoicePrivacyAcknowledged: false })
+        : { discussionVoicePrivacyAcknowledged: false },
+    ]);
     elements.learnerLevel.value = Core.sanitizeLevel(storedLevel.learnerLevel, "B1").replace("+", "") || "B1";
+    state.autoSpeak = storedVoiceSettings.discussionAutoSpeak !== false;
+    state.voicePrivacyAcknowledged = storedVoicePrivacy.discussionVoicePrivacyAcknowledged === true;
+    elements.discussionAutoSpeak.setAttribute("aria-pressed", String(state.autoSpeak));
+    createVoiceControllers();
+    renderVoiceInputState("idle");
     let response = previewMode
       ? (previewState === "no-subtitles" ? SAMPLE_UNAVAILABLE_CONTEXT : SAMPLE_CONTEXT)
       : null;
@@ -1042,11 +1364,11 @@
     elements.shell.dataset.state = "ready";
     configurePlayer();
     if (embeddedMode) startPlaybackPolling();
+    if (previewMode && previewState === "loading") return;
     await loadAnalysis();
   };
 
   elements.tabs.forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
-  document.querySelectorAll("[data-switch-tab]").forEach((button) => button.addEventListener("click", () => switchTab(button.dataset.switchTab)));
   document.querySelectorAll("[data-open-source]").forEach((button) => button.addEventListener("click", openSource));
   elements.openSource.addEventListener("click", openSource);
   elements.back.addEventListener("click", () => history.length > 1 ? history.back() : openSource());
@@ -1062,18 +1384,6 @@
     if (next) seekTo(next.start);
   });
   elements.transcriptSearch.addEventListener("input", renderTranscript);
-  elements.retryAnalysis.addEventListener("click", () => {
-    if (state.context?.completeTimeline) {
-      loadAnalysis({ force: true }).catch(showRuntimeError);
-      return;
-    }
-    if (previewMode) {
-      renderSubtitleUnavailable();
-      return;
-    }
-    state.contextRetrying = false;
-    waitForMoreLearningCues().catch(showRuntimeError);
-  });
   elements.refreshAnalysis.addEventListener("click", () => loadAnalysis({ force: true }));
   elements.learnerLevel.addEventListener("change", () => {
     (async () => {
@@ -1090,6 +1400,15 @@
     elements.discussionSessionOutline.hidden = !expanded;
   });
   elements.requestHint.addEventListener("click", () => runDiscussion({ hint: true }));
+  elements.discussionMicrophone.addEventListener("click", () => {
+    toggleVoiceInput().catch((error) => renderVoiceInputState("error", error));
+  });
+  elements.discussionAutoSpeak.addEventListener("click", () => {
+    state.autoSpeak = !state.autoSpeak;
+    elements.discussionAutoSpeak.setAttribute("aria-pressed", String(state.autoSpeak));
+    if (!state.autoSpeak) cancelSpeech();
+    writeExtensionStorage("sync", { discussionAutoSpeak: state.autoSpeak }).catch(() => undefined);
+  });
   elements.discussionForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const content = elements.discussionInput.value.trim();
@@ -1125,6 +1444,14 @@
     state.contextRetrying = false;
     clearInterval(state.previewTimer);
     clearInterval(state.playbackTimer);
+    clearTimeout(state.voicePreviewTimer);
+    speechToText?.dispose?.();
+    textToSpeech?.dispose?.();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) return;
+    stopVoiceInput({ abort: true }).catch(() => undefined);
+    cancelSpeech();
   });
   initialize().catch(showRuntimeError);
 })();

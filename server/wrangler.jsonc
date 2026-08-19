@@ -7,7 +7,7 @@
   "workers_dev": true,
   "keep_vars": true,
   "secrets": {
-    "required": ["DEEPSEEK_API_KEY"]
+    "required": ["DEEPSEEK_API_KEY", "DEEPGRAM_API_KEY"]
   },
   "ratelimits": [
     {

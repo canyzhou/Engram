@@ -92,6 +92,41 @@ test("DeepSeek worker localizes a known proxy error to the default English UI", 
   assert.match(response.error, /has not been configured/);
 });
 
+test("voice clients receive only a short-lived token from the backend proxy", async () => {
+  let request;
+  const listener = createWorker({
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        json: async () => ({ accessToken: "temporary-jwt", expiresIn: 30 }),
+      };
+    },
+  });
+
+  const response = await send(listener, { type: "CREATE_VOICE_TOKEN" });
+
+  assert.equal(request.url, "http://127.0.0.1:8787/v1/voice/token");
+  assert.deepEqual(JSON.parse(request.options.body), {});
+  assert.equal("Authorization" in request.options.headers, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), {
+    ok: true,
+    accessToken: "temporary-jwt",
+    expiresIn: 30,
+  });
+});
+
+test("voice token responses must contain an access token", async () => {
+  const listener = createWorker({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ expiresIn: 30 }) }),
+  });
+
+  const response = await send(listener, { type: "CREATE_VOICE_TOKEN" });
+
+  assert.equal(response.ok, false);
+  assert.match(response.error, /did not return an access token/);
+});
+
 test("contextual word lookup uses the same proxy origin and fixed request shape", async () => {
   let request;
   const listener = createWorker({

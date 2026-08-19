@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL = "deepseek-v4-flash";
+const DEEPGRAM_AUTH_ENDPOINT = "https://api.deepgram.com/v1/auth/grant";
+const DEEPGRAM_TOKEN_TTL_SECONDS = 30;
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_CUE_LENGTH = 800;
 const MAX_CONTEXT_CUES = 4;
@@ -883,6 +885,7 @@ const parseAllowedOrigins = (value) => new Set(
 export const createTranslationServer = ({ env = process.env, fetchImpl = fetch } = {}) => {
   const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS);
   const rateLimit = Math.max(1, Number(env.RATE_LIMIT_PER_MINUTE) || 120);
+  const voiceTokenRateLimit = Math.max(1, Number(env.VOICE_TOKEN_RATE_LIMIT_PER_MINUTE) || 12);
   const maxConcurrency = Math.max(1, Number(env.MAX_CONCURRENCY) || 8);
   const clients = new Map();
   let activeRequests = 0;
@@ -900,10 +903,11 @@ export const createTranslationServer = ({ env = process.env, fetchImpl = fetch }
     response.end(JSON.stringify(payload));
   };
 
-  const withinRateLimit = (request) => {
+  const withinRateLimit = (request, route) => {
     const connectingIp = String(request.headers["cf-connecting-ip"] || "").trim();
     const forwarded = String(request.headers["x-forwarded-for"] || "").split(",")[0].trim();
-    const key = connectingIp || forwarded || request.socket.remoteAddress || "unknown";
+    const address = connectingIp || forwarded || request.socket.remoteAddress || "unknown";
+    const key = `${address}:${route}`;
     const now = Date.now();
     const current = clients.get(key);
     if (!current || now - current.startedAt >= 60_000) {
@@ -911,7 +915,7 @@ export const createTranslationServer = ({ env = process.env, fetchImpl = fetch }
       return true;
     }
     current.count += 1;
-    return current.count <= rateLimit;
+    return current.count <= (route === "voice-token" ? voiceTokenRateLimit : rateLimit);
   };
 
   return http.createServer(async (request, response) => {
@@ -937,13 +941,18 @@ export const createTranslationServer = ({ env = process.env, fetchImpl = fetch }
           ? "lesson-analyze"
           : request.method === "POST" && request.url === "/v1/lesson/discuss"
             ? "lesson-discuss"
+            : request.method === "POST" && request.url === "/v1/voice/token"
+              ? "voice-token"
             : "";
     if (!route) {
       send(response, 404, { ok: false, error: "Not found" }, origin);
       return;
     }
-    if (!withinRateLimit(request)) {
-      send(response, 429, { ok: false, error: "翻译请求过于频繁，请稍后重试" }, origin);
+    if (!withinRateLimit(request, route)) {
+      send(response, 429, {
+        ok: false,
+        error: route === "voice-token" ? "语音请求过于频繁，请稍后重试" : "翻译请求过于频繁，请稍后重试",
+      }, origin);
       return;
     }
     if (activeRequests >= maxConcurrency) {
@@ -953,6 +962,48 @@ export const createTranslationServer = ({ env = process.env, fetchImpl = fetch }
 
     activeRequests += 1;
     try {
+      if (route === "voice-token") {
+        const apiKey = String(env.DEEPGRAM_API_KEY || "").trim();
+        if (!apiKey) throw Object.assign(new Error("服务端尚未配置 Deepgram API Key"), { status: 503 });
+        const requestBody = await readJson(request);
+        if (Object.keys(requestBody).length) {
+          throw Object.assign(new Error("语音令牌请求不接受参数"), { status: 400 });
+        }
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15_000);
+        try {
+          const upstream = await fetchImpl(DEEPGRAM_AUTH_ENDPOINT, {
+            method: "POST",
+            headers: {
+              Authorization: `Token ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ ttl_seconds: DEEPGRAM_TOKEN_TTL_SECONDS }),
+            signal: controller.signal,
+          });
+          const payload = await upstream.json().catch(() => ({}));
+          if (!upstream.ok) {
+            if ([401, 403].includes(upstream.status)) {
+              throw Object.assign(new Error("语音服务配置错误"), { status: 503 });
+            }
+            if (upstream.status === 429) {
+              throw Object.assign(new Error("语音服务暂时限流"), { status: 503 });
+            }
+            throw Object.assign(new Error("上游语音服务异常"), { status: 502 });
+          }
+          const accessToken = String(payload?.access_token || "").trim();
+          const expiresIn = Math.max(1, Math.min(
+            DEEPGRAM_TOKEN_TTL_SECONDS,
+            Number(payload?.expires_in) || DEEPGRAM_TOKEN_TTL_SECONDS,
+          ));
+          if (!accessToken) throw Object.assign(new Error("上游没有返回语音令牌"), { status: 502 });
+          send(response, 200, { accessToken, expiresIn }, origin);
+          return;
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+
       const apiKey = String(env.DEEPSEEK_API_KEY || "").trim();
       if (!apiKey) throw Object.assign(new Error("服务端尚未配置 DeepSeek API Key"), { status: 503 });
       const requestBody = await readJson(request);
@@ -1032,7 +1083,12 @@ export const createTranslationServer = ({ env = process.env, fetchImpl = fetch }
         send(response, 200, { ok: true, translation }, origin);
       }
     } catch (error) {
-      if (error?.name === "AbortError") send(response, 504, { ok: false, error: "翻译服务响应超时" }, origin);
+      if (error?.name === "AbortError") {
+        send(response, 504, {
+          ok: false,
+          error: route === "voice-token" ? "语音服务响应超时" : "翻译服务响应超时",
+        }, origin);
+      }
       else send(response, error?.status || 500, { ok: false, error: error?.message || "翻译服务异常" }, origin);
     } finally {
       activeRequests -= 1;

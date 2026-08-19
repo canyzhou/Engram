@@ -3,6 +3,7 @@ const RATE_LIMITED_PATHS = new Set([
   "/v1/word-lookup",
   "/v1/lesson/analyze",
   "/v1/lesson/discuss",
+  "/v1/voice/token",
 ]);
 
 export const shouldApplyEdgeRateLimit = (request) => (
@@ -16,7 +17,9 @@ export const createEdgeRateLimitKey = (request) => {
 
 export const createEdgeRateLimitResponse = (request) => new Response(JSON.stringify({
   ok: false,
-  error: "翻译请求过于频繁，请稍后重试",
+  error: new URL(request.url).pathname === "/v1/voice/token"
+    ? "语音请求过于频繁，请稍后重试"
+    : "翻译请求过于频繁，请稍后重试",
 }), {
   status: 429,
   headers: {

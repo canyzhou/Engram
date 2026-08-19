@@ -40,5 +40,7 @@ jobs:
           command: deploy
           secrets: |
             DEEPSEEK_API_KEY
+            DEEPGRAM_API_KEY
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}

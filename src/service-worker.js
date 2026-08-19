@@ -22,12 +22,14 @@ const UI_MESSAGES = Object.freeze({
     proxyEmptyWord: "The translation proxy returned no word entry",
     videoTabMissing: "No supported video tab has been detected",
     playerNoResponse: "The player did not respond",
+    voiceTokenMissing: "The voice service did not return an access token",
   }),
   "zh-CN": Object.freeze({
     invalidProxyUrl: "翻译代理地址无效", secureProxyRequired: "翻译代理必须使用 HTTPS；本机回环地址可使用 HTTP", proxyCredentialsForbidden: "翻译代理地址不能包含凭据",
     proxyTimeout: "翻译代理响应超时，请稍后重试", proxyConnectionFailed: "无法连接翻译代理，请确认后端服务已启动", proxyRequestFailed: "翻译代理请求失败 ($1)",
     googleRequestFailed: "Google 翻译请求失败 ($1)", googleEmptyResponse: "Google 翻译没有返回内容", proxyEmptyTranslation: "翻译代理没有返回译文",
     proxyEmptyWord: "翻译代理没有返回查词结果", videoTabMissing: "尚未检测到支持的视频标签页", playerNoResponse: "播放器未响应",
+    voiceTokenMissing: "语音服务没有返回访问令牌",
   }),
 });
 const t = (key, substitution = "") => (UI_MESSAGES[uiLanguage]?.[key] || UI_MESSAGES.en[key] || key).replaceAll("$1", String(substitution));
@@ -44,6 +46,10 @@ const ENGLISH_PROXY_ERRORS = Object.freeze({
   "上游没有返回译文": "The upstream service returned no translation",
   "翻译服务响应超时": "The translation service timed out",
   "翻译服务异常": "The translation service failed",
+  "语音令牌请求过于频繁，请稍后重试": "Voice token requests are too frequent. Please try again later",
+  "服务端尚未配置 Deepgram API Key": "The voice server has not been configured with a Deepgram API key",
+  "语音服务认证失败": "The voice service could not be authenticated",
+  "语音服务暂时不可用": "The voice service is temporarily unavailable",
   "不允许的客户端来源": "This client origin is not allowed",
 });
 const localizeProxyError = (message, status) => {
@@ -196,6 +202,16 @@ const discussLearningMaterial = async ({ mode, phase, questionIndex, questionPla
   return payload.discussion;
 };
 
+const createVoiceToken = async () => {
+  const payload = await postToTranslationProxy("/v1/voice/token", {});
+  const accessToken = String(payload?.accessToken || "").trim();
+  if (!accessToken) throw new Error(t("voiceTokenMissing"));
+  return {
+    accessToken,
+    expiresIn: Math.max(1, Number(payload.expiresIn) || 30),
+  };
+};
+
 const fetchDictionaryEntry = async (candidates) => {
   for (const candidate of candidates || []) {
     if (dictionaryCache.has(candidate)) return dictionaryCache.get(candidate);
@@ -329,6 +345,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "DISCUSS_LEARNING_MATERIAL") {
     discussLearningMaterial(message)
       .then((discussion) => sendResponse({ ok: true, discussion }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "CREATE_VOICE_TOKEN") {
+    createVoiceToken()
+      .then((token) => sendResponse({ ok: true, ...token }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }

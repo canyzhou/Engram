@@ -17,10 +17,12 @@ test("parses only supported local environment values without executing shell syn
   assert.deepEqual(parseLocalEnv([
     "# local server settings",
     "DEEPSEEK_API_KEY='sk-test value'",
+    "DEEPGRAM_API_KEY='dg-test value'",
     "PORT=8787",
     "ALLOWED_ORIGINS=chrome-extension://example",
   ].join("\n")), {
     DEEPSEEK_API_KEY: "sk-test value",
+    DEEPGRAM_API_KEY: "dg-test value",
     PORT: "8787",
     ALLOWED_ORIGINS: "chrome-extension://example",
   });
@@ -35,12 +37,13 @@ test("loads a private env file", (context) => {
   const directory = mkdtempSync(join(tmpdir(), "engram-server-env-"));
   const envPath = join(directory, "server.env");
   context.after(() => rmSync(directory, { recursive: true, force: true }));
-  writeFileSync(envPath, "DEEPSEEK_API_KEY=sk-local-test\nPORT=9876\n", { mode: 0o600 });
+  writeFileSync(envPath, "DEEPSEEK_API_KEY=sk-local-test\nDEEPGRAM_API_KEY=dg-local-test\nPORT=9876\n", { mode: 0o600 });
   chmodSync(envPath, 0o600);
 
   const result = loadLocalEnvironment(envPath);
   assert.equal(result.envPath, realpathSync(envPath));
   assert.equal(result.env.DEEPSEEK_API_KEY, "sk-local-test");
+  assert.equal(result.env.DEEPGRAM_API_KEY, "dg-local-test");
   assert.equal(result.env.PORT, "9876");
 });
 
@@ -49,8 +52,18 @@ test("rejects an env file readable by other local users", (context) => {
   const directory = mkdtempSync(join(tmpdir(), "engram-server-env-"));
   const envPath = join(directory, "server.env");
   context.after(() => rmSync(directory, { recursive: true, force: true }));
-  writeFileSync(envPath, "DEEPSEEK_API_KEY=sk-local-test\n", { mode: 0o644 });
+  writeFileSync(envPath, "DEEPSEEK_API_KEY=sk-local-test\nDEEPGRAM_API_KEY=dg-local-test\n", { mode: 0o644 });
   chmodSync(envPath, 0o644);
 
   assert.throws(() => loadLocalEnvironment(envPath), /chmod 600/);
+});
+
+test("requires the Deepgram key for local voice development", (context) => {
+  const directory = mkdtempSync(join(tmpdir(), "engram-server-env-"));
+  const envPath = join(directory, "server.env");
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(envPath, "DEEPSEEK_API_KEY=sk-local-test\n", { mode: 0o600 });
+  chmodSync(envPath, 0o600);
+
+  assert.throws(() => loadLocalEnvironment(envPath), /缺少 DEEPGRAM_API_KEY/);
 });

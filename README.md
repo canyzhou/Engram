@@ -30,7 +30,7 @@ Engram 是一款面向真实语境的英语学习助手，目标是把你本来�
 - 英文逐词 hover：自动暂停视频，结合当前字幕与最近 4 句前文识别原形、短语和语境中文义，并可加入生词
 - 单词本：搜索、排序、朗读、删除撤销、清空确认和 CSV 导出
 - 调试页和本地视觉预览页
-- YouTube 学习模式：从弹窗复制当前 YouTube 视频到新的学习标签页，保留左侧原生播放器，右侧提供 5 秒可读的材料分析、可跳转字幕和基于材料/进阶 AI 文字讨论
+- YouTube 学习模式：从弹窗复制当前 YouTube 视频到新的学习标签页，保留左侧原生播放器，右侧提供 5 秒可读的材料分析、可跳转字幕，以及支持英语语音输入和自然朗读的 AI 讨论
 
 ### 学习模式
 
@@ -40,9 +40,11 @@ Engram 是一款面向真实语境的英语学习助手，目标是把你本来�
 - 三个能够回到原字幕的高价值表达；
 - 词汇、语速、句法难度与推荐精学区间；
 - 可搜索、自动跟随和点击跳转的字幕列表；
-- 基于材料与进阶迁移两种 AI 文字讨论，回答中的引用可回到视频时间点。
+- 基于材料与进阶迁移两种 AI 讨论，回答中的引用可回到视频时间点；
+- Deepgram Flux 英语语音输入：识别结果先进入输入框供编辑，永不自动发送；
+- Deepgram Aura-2 自然朗读：AI 新回复默认朗读，可关闭自动朗读，也可逐条重播。
 
-材料分析和讨论通过自建代理调用 DeepSeek。模型只能返回固定结构，客户端和服务端都会验证表达与引用确实存在于字幕中。AI 结果不完整时服务端会自动修复一次；仍失败时页面会明确提示，并由用户决定是否使用标注清楚的本地简版，字幕学习仍可正常使用。可用 `learning-mode.html?preview=1` 在不加载扩展 API、不开启后端的情况下预览完整交互。
+材料分析和讨论通过自建代理调用 DeepSeek；语音由 Deepgram Flux 与 Aura-2 提供。永久 AK 都只保存在后端，扩展通过代理申请 30 秒短期语音令牌后直连 Deepgram，原始录音和朗读正文不经过 Engram 后端。模型只能返回固定结构，客户端和服务端都会验证表达与引用确实存在于字幕中。语音不可用时可完整使用现有文字讨论。可用 `learning-mode.html?preview=1` 在不加载扩展 API、不开启后端、无需麦克风权限的情况下预览完整语音交互状态。
 
 ## 安装
 
@@ -83,9 +85,12 @@ chmod 600 server/.env.local
 
 ```dotenv
 DEEPSEEK_API_KEY=你的DeepSeek_API_Key
+DEEPGRAM_API_KEY=你的Deepgram_API_Key
 HOST=127.0.0.1
 PORT=8787
 ```
+
+`DEEPGRAM_API_KEY` 同时用于 Flux 语音识别和 Aura-2 朗读。首次点击讨论区麦克风时，页面会说明音频将发送到 Deepgram 并请求同意；Chrome 随后才会申请麦克风权限。识别文字仍需由用户手动发送。
 
 然后启动：
 
@@ -125,6 +130,7 @@ npm run dev
 
 - `POST /v1/translate`：字幕翻译
 - `POST /v1/word-lookup`：结合字幕语境查词
+- `POST /v1/voice/token`：签发 30 秒 Deepgram 临时令牌，不接收音频或朗读正文
 - `GET /health`：健康检查
 
 服务不接受来自扩展的模型名、system prompt 或生成参数，且内置字幕长度、请求体、并发和每分钟速率限制，避免成为任意 LLM 转发器。
@@ -143,13 +149,14 @@ npm run build:extension
 
 仓库已包含 Cloudflare Worker 入口、Wrangler 配置和 GitHub Actions 流水线。首次部署前，先在 Cloudflare Dashboard 的 Workers & Pages 引导页创建你的 `workers.dev` 子域；这一步需要交互确认，GitHub Actions 无法代办。已有 `workers.dev` 子域或改用自定义域名/route 的账号可以跳过。
 
-然后在 GitHub 仓库的 `Settings → Secrets and variables → Actions` 中创建三个 Repository Secret：
+然后在 GitHub 仓库的 `Settings → Secrets and variables → Actions` 中创建四个 Repository Secret：
 
 - `CLOUDFLARE_API_TOKEN`：使用 Cloudflare 的 **Edit Cloudflare Workers** 模板创建，并只授权目标账号
 - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare 账号 ID
 - `DEEPSEEK_API_KEY`：生产环境使用的 DeepSeek AK
+- `DEEPGRAM_API_KEY`：生产环境使用的 Deepgram AK
 
-推送 `server/**` 或部署工作流到 `main` 后，流水线会先运行扩展和后端测试，再部署 `paramount-subtitle-translation-proxy` Worker，并把 AK 写入 Cloudflare Worker Secret。也可以从 GitHub Actions 页面手动运行。AK 不会写进源码、Wrangler 明文变量或构建产物。
+推送 `server/**` 或部署工作流到 `main` 后，流水线会先运行扩展和后端测试，再部署 `paramount-subtitle-translation-proxy` Worker，并把两个 AK 写入 Cloudflare Worker Secret。也可以从 GitHub Actions 页面手动运行。AK 不会写进源码、Wrangler 明文变量或构建产物。
 
 Worker 使用 Cloudflare Rate Limiting binding 按客户端和路由限制请求；Node 服务内的并发和速率限制仍作为第二层保护。`server/wrangler.jsonc` 中的 `namespace_id` 必须在你的 Cloudflare 账号内唯一，如已被其他 Worker 使用，请先改成另一个正整数。
 
@@ -158,6 +165,7 @@ Worker 使用 Cloudflare Rate Limiting binding 按客户端和路由限制请求
 ```dotenv
 ALLOWED_ORIGINS=chrome-extension://你的扩展ID
 RATE_LIMIT_PER_MINUTE=120
+VOICE_TOKEN_RATE_LIMIT_PER_MINUTE=12
 MAX_CONCURRENCY=8
 ```
 
@@ -196,9 +204,11 @@ src/page-bridge.js         页面主环境：YouTube 字幕轨、fetch/XHR/TextT
 src/capture.js             DOM/JSON3/timedtext/VTT/TTML 解析与采集协调
 src/learning-site-adapters.js  学习模式站点注册表：路由、元数据、播放器定位与原站链接
 src/learning-workspace-shell.js 通用学习工作区：播放器控制、字幕、生词与右侧分析面板
+src/discussion-stt.js      Deepgram Flux 流式英语识别与麦克风生命周期
+src/discussion-tts.js      Deepgram Aura-2 流式播放、取消和内存缓存
 src/translator.js          Chrome 本地、DeepSeek 与 Google 备用翻译
 src/overlay.js             Shadow DOM 双语字幕和词卡
-src/service-worker.js      翻译代理、语境查词、Google 备用和词典请求
-server/                    从环境变量读取 DeepSeek AK 的 Node / Cloudflare 翻译与查词代理
+src/service-worker.js      翻译代理、语境查词、语音临时令牌、Google 备用和词典请求
+server/                    从环境变量读取 DeepSeek / Deepgram AK 的 Node / Cloudflare 后端
 .github/workflows/         测试并自动部署 Cloudflare Worker
 ```

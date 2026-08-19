@@ -17,10 +17,12 @@ export const LEGACY_ENV_PATH = join(
 
 const ALLOWED_KEYS = new Set([
   "DEEPSEEK_API_KEY",
+  "DEEPGRAM_API_KEY",
   "HOST",
   "PORT",
   "ALLOWED_ORIGINS",
   "RATE_LIMIT_PER_MINUTE",
+  "VOICE_TOKEN_RATE_LIMIT_PER_MINUTE",
   "MAX_CONCURRENCY",
 ]);
 
@@ -83,6 +85,9 @@ export const loadLocalEnvironment = (requestedPath) => {
   const parsed = parseLocalEnv(readFileSync(envPath, "utf8"));
   if (!String(parsed.DEEPSEEK_API_KEY || "").trim()) {
     throw new Error("env 文件缺少 DEEPSEEK_API_KEY");
+  }
+  if (!String(parsed.DEEPGRAM_API_KEY || "").trim()) {
+    throw new Error("env 文件缺少 DEEPGRAM_API_KEY");
   }
   return { envPath, env: { ...process.env, ...parsed } };
 };

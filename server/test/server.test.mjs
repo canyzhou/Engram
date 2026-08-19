@@ -431,13 +431,90 @@ const dispatch = (server, { url, body, headers = {} }) => new Promise((resolve, 
   request.socket = { remoteAddress: "127.0.0.1" };
   const response = {
     status: 0,
-    writeHead(status) { this.status = status; },
+    headers: {},
+    writeHead(status, nextHeaders = {}) { this.status = status; this.headers = nextHeaders; },
     end(payload) {
-      try { resolve({ status: this.status, payload: JSON.parse(payload) }); }
+      try { resolve({ status: this.status, headers: this.headers, payload: JSON.parse(payload) }); }
       catch (error) { reject(error); }
     },
   };
   server.listeners("request")[0](request, response).catch(reject);
+});
+
+test("issues a short-lived Deepgram token without exposing the permanent key", async () => {
+  let upstreamRequest;
+  const server = createTranslationServer({
+    env: { DEEPGRAM_API_KEY: "dg-secret" },
+    fetchImpl: async (url, options) => {
+      upstreamRequest = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: "short-lived-jwt", expires_in: 30 }),
+      };
+    },
+  });
+
+  const { status, headers, payload } = await dispatch(server, {
+    url: "/v1/voice/token",
+    body: {},
+    headers: { origin: "chrome-extension://engram" },
+  });
+
+  assert.equal(status, 200);
+  assert.deepEqual(payload, { accessToken: "short-lived-jwt", expiresIn: 30 });
+  assert.equal(headers["Cache-Control"], "no-store");
+  assert.equal(upstreamRequest.url, "https://api.deepgram.com/v1/auth/grant");
+  assert.equal(upstreamRequest.options.headers.Authorization, "Token dg-secret");
+  assert.deepEqual(JSON.parse(upstreamRequest.options.body), { ttl_seconds: 30 });
+  assert.equal(JSON.stringify(payload).includes("dg-secret"), false);
+});
+
+test("voice token route requires its own key and rejects client parameters", async () => {
+  const missingKeyServer = createTranslationServer({
+    env: { DEEPSEEK_API_KEY: "sk-test" },
+    fetchImpl: async () => assert.fail("fetch should not run without a Deepgram key"),
+  });
+  const missing = await dispatch(missingKeyServer, { url: "/v1/voice/token", body: {} });
+  assert.equal(missing.status, 503);
+  assert.equal(missing.payload.error, "服务端尚未配置 Deepgram API Key");
+
+  const parameterServer = createTranslationServer({
+    env: { DEEPGRAM_API_KEY: "dg-secret" },
+    fetchImpl: async () => assert.fail("fetch should not run for parameterized grants"),
+  });
+  const parameterized = await dispatch(parameterServer, {
+    url: "/v1/voice/token",
+    body: { ttl_seconds: 3600, model: "arbitrary" },
+  });
+  assert.equal(parameterized.status, 400);
+  assert.equal(parameterized.payload.error, "语音令牌请求不接受参数");
+});
+
+test("voice token rate limit is independent from translation requests", async () => {
+  const server = createTranslationServer({
+    env: {
+      DEEPSEEK_API_KEY: "sk-test",
+      DEEPGRAM_API_KEY: "dg-secret",
+      RATE_LIMIT_PER_MINUTE: "1",
+      VOICE_TOKEN_RATE_LIMIT_PER_MINUTE: "1",
+    },
+    fetchImpl: async (url) => url.includes("deepgram")
+      ? { ok: true, status: 200, json: async () => ({ access_token: "jwt", expires_in: 30 }) }
+      : {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ translation: "好。" }) } }] }),
+      },
+  });
+
+  const translation = await dispatch(server, { url: "/v1/translate", body: { text: "Fine." } });
+  const firstToken = await dispatch(server, { url: "/v1/voice/token", body: {} });
+  const secondToken = await dispatch(server, { url: "/v1/voice/token", body: {} });
+  assert.equal(translation.status, 200);
+  assert.equal(firstToken.status, 200);
+  assert.equal(secondToken.status, 429);
+  assert.equal(secondToken.payload.error, "语音请求过于频繁，请稍后重试");
 });
 
 test("serves a structured contextual word lookup", async () => {

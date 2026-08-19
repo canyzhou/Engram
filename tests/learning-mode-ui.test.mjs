@@ -41,6 +41,9 @@ test("analysis presents one combined learning recommendation with grounded contr
   assert.match(script, /response\.completeTimeline && nextCues\.length >= 3/);
   assert.match(script, /allowPartial = false/);
   assert.match(html, /id="analysis-error-title"/);
+  assert.match(html, /id="analysis-loading"[^>]*role="status"[^>]*aria-busy="true"/);
+  assert.match(html, /class="progress-spinner"/);
+  assert.doesNotMatch(html, /id="retry-analysis"|data-switch-tab="transcript"/);
   assert.match(script, /"此视频没有可用英文字幕"/);
   assert.match(script, /当前网站没有为这个视频返回可用的英文字幕/);
   assert.doesNotMatch(script, /字幕仍未收集完整，当前不推荐/);
@@ -56,9 +59,8 @@ test("analysis presents one combined learning recommendation with grounded contr
 test("automatic subtitle completion reuses cached analysis while explicit refresh bypasses it", () => {
   assert.match(script, /response\.completeTimeline[\s\S]*?loadAnalysis\(\{ allowPartial: false \}\)/);
   assert.match(script, /state\.cues\.length >= 3[\s\S]*?loadAnalysis\(\{ allowPartial: true \}\)/);
-  assert.match(script, /retryAnalysis\.addEventListener\("click"[\s\S]*?state\.context\?\.completeTimeline[\s\S]*?loadAnalysis\(\{ force: true \}\)/);
-  assert.match(script, /waitForMoreLearningCues\(\)\.catch\(showRuntimeError\)/);
   assert.match(script, /refreshAnalysis\.addEventListener\("click", \(\) => loadAnalysis\(\{ force: true \}\)\)/);
+  assert.match(script, /previewMode && previewState === "loading"/);
 });
 
 test("missing subtitles render a dedicated status instead of a fake material recommendation", () => {
@@ -74,6 +76,8 @@ test("missing subtitles render a dedicated status instead of a fake material rec
 
 test("discussion tab previews a lesson outline before the guided session", () => {
   assert.match(html, /id="discussion-unavailable"/);
+  assert.match(html, /id="discussion-unavailable"[^>]*data-state="loading"[^>]*aria-busy="true"/);
+  assert.doesNotMatch(html, /data-switch-tab="analysis"/);
   assert.match(html, /id="source-question-list"/);
   assert.match(html, /id="advanced-question-list"/);
   assert.match(html, /id="start-discussion"[^>]*>开始讨论/);
@@ -85,6 +89,8 @@ test("discussion tab previews a lesson outline before the guided session", () =>
   assert.match(script, /item\.text && item\.evidence\.length/);
   assert.match(script, /recommendation === "intensive_study"/);
   assert.match(script, /state\.discussionPlan\.length > 0/);
+  assert.match(script, /const discussionPending = !subtitleUnavailable && !state\.analysis/);
+  assert.match(script, /discussionPending \? "loading" : "unavailable"/);
   assert.match(script, /这份材料更适合泛看，不生成完整讨论课/);
   assert.doesNotMatch(html, /data-discussion-mode/);
 });
@@ -95,6 +101,26 @@ test("discussion intro sits above the chat instead of inside the opening message
   assert.match(script, /elements\.discussionIntro\.hidden = false/);
   assert.match(script, /const openingQuestion = state\.discussionPlan\[0\]\.text/);
   assert.doesNotMatch(script, /AI 英语老师[^\n]*discussionPlan/);
+});
+
+test("discussion voice UI supports dictation, automatic reading, and per-message replay", () => {
+  assert.match(html, /id="discussion-auto-speak"[^>]*aria-pressed="true"/);
+  assert.match(html, /id="discussion-microphone"[^>]*aria-label="开始语音输入"/);
+  assert.match(html, /id="voice-input-status"[^>]*aria-live="polite"/);
+  assert.match(html, /id="voice-privacy-dialog"[^>]*aria-labelledby="voice-privacy-title"/);
+  assert.match(html, /录音会直接发送给 Deepgram 处理/);
+  assert.match(html, /src="src\/discussion-stt\.js/);
+  assert.match(html, /src="src\/discussion-tts\.js/);
+  assert.match(script, /type: "CREATE_VOICE_TOKEN"/);
+  assert.match(script, /discussionVoicePrivacyAcknowledged/);
+  assert.match(script, /discussionAutoSpeak/);
+  assert.match(script, /className = "message-speak-button"/);
+  assert.match(script, /setPlaying\(false\);[\s\S]*captureVoiceInsertionPoint/);
+  assert.match(css, /\.microphone-button\[aria-pressed="true"\]/);
+  assert.match(css, /\.message-speak-button\[data-state="speaking"\]/);
+  assert.match(css, /\.composer-actions \{[^}]*position: static/);
+  assert.match(css, /\.auto-speak-button\[aria-pressed="true"\] \{[^}]*background: #352816/);
+  assert.doesNotMatch(css, /\.auto-speak-button\[aria-pressed="true"\] \{[^}]*var\(--accent-soft\)/);
 });
 
 test("current subtitle stays hidden when playback is between cues", () => {

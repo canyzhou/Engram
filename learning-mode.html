@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Engram · 学习模式</title>
-    <link rel="stylesheet" href="learning-mode.css?v=7">
+    <link rel="stylesheet" href="learning-mode.css?v=8">
   </head>
   <body>
     <main class="learning-shell" data-state="loading">
@@ -77,19 +77,17 @@
           </nav>
 
           <section class="tab-panel analysis-panel" id="panel-analysis" role="tabpanel" aria-labelledby="tab-analysis">
-            <div class="analysis-loading" id="analysis-loading">
-              <span class="loading-line loading-line--title"></span>
-              <span class="loading-line"></span>
-              <span class="loading-line loading-line--button"></span>
-              <p>正在分析字幕与学习价值…</p>
+            <div class="analysis-loading progress-status" id="analysis-loading" role="status" aria-live="polite" aria-busy="true">
+              <span class="progress-spinner" aria-hidden="true"></span>
+              <span class="progress-status-label">AI 材料分析</span>
+              <h2>正在分析这段视频</h2>
+              <p>正在整理字幕、评估难度并提炼学习重点，请稍候。</p>
             </div>
-            <div class="analysis-error" id="analysis-error" hidden>
-              <h2 id="analysis-error-title">AI 分析未完成</h2>
-              <p id="analysis-error-message">AI 没有返回完整结果，请重试或先查看字幕。</p>
-              <div class="error-actions">
-                <button class="primary-button" id="retry-analysis" type="button">重试分析</button>
-                <button class="text-button" type="button" data-switch-tab="transcript">先看字幕</button>
-              </div>
+            <div class="analysis-error progress-status" id="analysis-error" data-state="loading" role="status" aria-live="polite" aria-busy="true" hidden>
+              <span class="progress-spinner" aria-hidden="true"></span>
+              <span class="progress-status-label" id="analysis-status-label">AI 材料分析</span>
+              <h2 id="analysis-error-title">材料分析正在准备中</h2>
+              <p id="analysis-error-message">正在整理字幕、评估难度并提炼学习重点，请稍候。</p>
             </div>
             <div class="analysis-content" id="analysis-content" hidden>
               <section class="recommendation-card" id="recommendation-card" data-recommendation="intensive_study" aria-live="polite">
@@ -157,11 +155,11 @@
           </section>
 
           <section class="tab-panel discussion-panel" id="panel-discussion" role="tabpanel" aria-labelledby="tab-discussion" hidden>
-            <div class="discussion-unavailable" id="discussion-unavailable" hidden>
-              <span id="discussion-unavailable-label">讨论暂不可用</span>
-              <h2 id="discussion-unavailable-title">这份材料不生成讨论课</h2>
-              <p id="discussion-unavailable-message">当前学习建议不是精学，仍可继续观看或查看字幕。</p>
-              <button class="text-button" type="button" data-switch-tab="analysis">查看学习建议</button>
+            <div class="discussion-unavailable progress-status" id="discussion-unavailable" data-state="loading" role="status" aria-live="polite" aria-busy="true" hidden>
+              <span class="progress-spinner" aria-hidden="true"></span>
+              <span class="progress-status-label" id="discussion-unavailable-label">AI 讨论准备中</span>
+              <h2 id="discussion-unavailable-title">正在生成讨论提纲</h2>
+              <p id="discussion-unavailable-message">材料分析完成后，AI 会根据视频内容整理讨论问题，请稍候。</p>
             </div>
             <div class="discussion-outline" id="discussion-outline">
               <header class="discussion-outline-heading">
@@ -212,22 +210,50 @@
 
             <form class="composer" id="discussion-form" hidden>
               <div class="composer-actions">
+                <button class="auto-speak-button" id="discussion-auto-speak" type="button" aria-pressed="true" title="AI 回复后自动朗读">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6 7 10H4v4h3l4 4Z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a8 8 0 0 1 0 11"/></svg>
+                  <span>自动朗读</span>
+                </button>
                 <button class="hint-button" id="request-hint" type="button">给我提示</button>
               </div>
               <label for="discussion-input" class="sr-only">输入你的回答</label>
-              <textarea id="discussion-input" rows="3" maxlength="1200" placeholder="用英文回答…"></textarea>
-              <button class="send-button" type="submit" aria-label="发送回答">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z"/><path d="m12 13 7-8"/></svg>
-              </button>
+              <div class="composer-input">
+                <textarea id="discussion-input" rows="3" maxlength="1200" placeholder="用英文回答…"></textarea>
+                <button class="microphone-button" id="discussion-microphone" type="button" aria-label="开始语音输入" aria-pressed="false" title="语音输入">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/></svg>
+                </button>
+                <button class="send-button" id="discussion-send" type="submit" aria-label="发送回答">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z"/><path d="m12 13 7-8"/></svg>
+                </button>
+              </div>
+              <div class="voice-input-status" id="voice-input-status" role="status" aria-live="polite">
+                <span>可键入，也可点击麦克风用英语回答</span>
+                <time id="voice-input-duration" datetime="PT0S"></time>
+              </div>
             </form>
           </section>
         </aside>
       </section>
     </main>
+    <dialog class="voice-privacy-dialog" id="voice-privacy-dialog" aria-labelledby="voice-privacy-title">
+      <form method="dialog">
+        <div class="privacy-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/></svg>
+        </div>
+        <h2 id="voice-privacy-title">启用语音对话</h2>
+        <p>为识别你的英语回答，录音会直接发送给 Deepgram 处理；Engram 不保存录音。你可以在发送前修改识别结果，也可以继续打字回答。</p>
+        <div class="voice-privacy-actions">
+          <button class="secondary-button" id="voice-privacy-cancel" type="submit" value="cancel">暂不用</button>
+          <button class="primary-button" id="voice-privacy-confirm" type="submit" value="confirm">同意并继续</button>
+        </div>
+      </form>
+    </dialog>
     <script src="src/namespace.js?v=5"></script>
     <script src="src/learning-site-adapters.js?v=1"></script>
     <script src="src/learning-mode-core.js?v=7"></script>
     <script src="src/learning-history-core.js?v=1"></script>
-    <script src="learning-mode.js?v=7"></script>
+    <script src="src/discussion-stt.js?v=1"></script>
+    <script src="src/discussion-tts.js?v=1"></script>
+    <script src="learning-mode.js?v=8"></script>
   </body>
 </html>

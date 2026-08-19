@@ -266,7 +266,7 @@
       this.frame = document.createElement("iframe");
       this.frame.id = "pst-learning-panel";
       this.frame.title = "Engram 学习区域";
-      this.frame.setAttribute("allow", "clipboard-write");
+      this.frame.setAttribute("allow", "clipboard-write; microphone");
       const frameUrl = new URL(chrome.runtime.getURL("learning-mode.html"));
       frameUrl.searchParams.set("embedded", "1");
       if (sourceTabId) frameUrl.searchParams.set("sourceTabId", String(sourceTabId));

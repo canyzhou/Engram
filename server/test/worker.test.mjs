@@ -25,6 +25,9 @@ test("applies the edge limiter only to translation API calls", () => {
   assert.equal(shouldApplyEdgeRateLimit(new Request("https://worker.example/v1/lesson/discuss", {
     method: "POST",
   })), true);
+  assert.equal(shouldApplyEdgeRateLimit(new Request("https://worker.example/v1/voice/token", {
+    method: "POST",
+  })), true);
   assert.equal(shouldApplyEdgeRateLimit(new Request("https://worker.example/health")), false);
 });
 
@@ -51,7 +54,7 @@ test("Cloudflare config requires the production secret and a distributed limiter
   const config = JSON.parse(readFileSync(resolve(serverDirectory, "wrangler.jsonc"), "utf8"));
   assert.equal(config.main, "worker.mjs");
   assert.equal(config.compatibility_flags.includes("nodejs_compat"), true);
-  assert.deepEqual(config.secrets.required, ["DEEPSEEK_API_KEY"]);
+  assert.deepEqual(config.secrets.required, ["DEEPSEEK_API_KEY", "DEEPGRAM_API_KEY"]);
   assert.equal(config.ratelimits[0].name, "API_RATE_LIMITER");
   assert.equal(config.ratelimits[0].simple.limit, 120);
 });
@@ -65,5 +68,6 @@ test("deployment workflow passes credentials only through GitHub secrets", () =>
   assert.match(workflow, /secrets\.CLOUDFLARE_API_TOKEN/);
   assert.match(workflow, /secrets\.CLOUDFLARE_ACCOUNT_ID/);
   assert.match(workflow, /secrets\.DEEPSEEK_API_KEY/);
+  assert.match(workflow, /secrets\.DEEPGRAM_API_KEY/);
   assert.doesNotMatch(workflow, /sk-[A-Za-z0-9]/);
 });
