@@ -117,6 +117,13 @@ test("creates two Engoo-style sets of discussion questions", () => {
   assert.doesNotMatch(questions.source.map((question) => question.text).join(" "), /main message|stands out|Do you agree/i);
 });
 
+test("does not invent discussion questions when there is no subtitle evidence", () => {
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(Core.createDiscussionQuestions("A title-only video", []))),
+    { source: [], advanced: [] },
+  );
+});
+
 test("fails closed when the AI proxy is unavailable", () => {
   const cues = [
     { start: 1, end: 4, text: "Filming cinematic videos by yourself can feel really challenging." },

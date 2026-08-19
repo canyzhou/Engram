@@ -5,6 +5,7 @@ import test from "node:test";
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
 const source = readFileSync(new URL("../src/player-settings.js", import.meta.url), "utf8");
 const contentSource = readFileSync(new URL("../src/content.js", import.meta.url), "utf8");
+const adaptersSource = readFileSync(new URL("../src/learning-site-adapters.js", import.meta.url), "utf8");
 
 test("loads the YouTube player settings control before content initialization", () => {
   const scripts = manifest.content_scripts.find((entry) => entry.js.includes("src/content.js"))?.js || [];
@@ -38,6 +39,7 @@ test("player settings exposes the popup learning-mode action", () => {
   assert.ok(source.indexOf('data-setting="hideNative"') < source.indexOf('data-action="open-learning"'));
   assert.ok(source.indexOf('data-action="open-learning"') < source.indexOf('data-i18n="autoSave"'));
   assert.match(source, /this\.onOpenLearningMode\?\.\(\)/);
-  assert.match(contentSource, /searchParams\.set\("engram_learning", "1"\)/);
-  assert.match(contentSource, /searchParams\.set\("t", `\$\{currentTime\}s`\)/);
+  assert.match(contentSource, /learningSiteAdapter\?\.buildLearningUrl/);
+  assert.match(adaptersSource, /searchParams\.set\("engram_learning", "1"\)/);
+  assert.match(adaptersSource, /formatTime\(seconds\)/);
 });

@@ -5,6 +5,7 @@
   const hasExtensionApi = PST.hasExtensionContext();
   const pageParams = new URLSearchParams(location.search);
   const previewMode = pageParams.get("preview") === "1" || !hasExtensionApi;
+  const previewState = pageParams.get("previewState") || "ready";
   const embeddedMode = pageParams.get("embedded") === "1";
   const sourceTabId = Number(pageParams.get("sourceTabId")) || null;
   if (embeddedMode) document.documentElement.classList.add("embedded-mode");
@@ -33,6 +34,32 @@
       { start: 382, end: 390, text: "Traveling alone forces you to make decisions and trust yourself.", translation: "独自旅行迫使你做决定并相信自己。" },
       { start: 472, end: 480, text: "That is why solo travel can change the way you see your own life.", translation: "这就是独自旅行能改变你看待自己生活方式的原因。" },
     ],
+    displayCues: [
+      { start: 26, end: 28, text: "I think it's going to be" },
+      { start: 28, end: 31, text: "roughly 8 hours." },
+    ],
+  });
+
+  const SAMPLE_UNAVAILABLE_CONTEXT = Object.freeze({
+    ...SAMPLE_CONTEXT,
+    completeTimeline: false,
+    subtitleAvailability: {
+      state: "unavailable",
+      reason: "no_tracks",
+      provider: "youtube",
+      needsLogin: false,
+    },
+    video: {
+      ...SAMPLE_CONTEXT.video,
+      id: "sample-no-subtitles",
+      title: "Video without English subtitles",
+      author: "YouTube",
+      url: "https://www.youtube.com/watch?v=sample-no-subtitles",
+      duration: 713,
+      currentTime: 10,
+    },
+    cues: [],
+    displayCues: [],
   });
 
   const SAMPLE_ANALYSIS = Object.freeze({
@@ -130,6 +157,7 @@
     panels: [...document.querySelectorAll(".tab-panel")],
     analysisLoading: document.querySelector("#analysis-loading"),
     analysisError: document.querySelector("#analysis-error"),
+    analysisErrorTitle: document.querySelector("#analysis-error-title"),
     analysisErrorMessage: document.querySelector("#analysis-error-message"),
     analysisContent: document.querySelector("#analysis-content"),
     retryAnalysis: document.querySelector("#retry-analysis"),
@@ -158,6 +186,8 @@
     transcriptStatus: document.querySelector("#transcript-status"),
     transcriptList: document.querySelector("#transcript-list"),
     discussionUnavailable: document.querySelector("#discussion-unavailable"),
+    discussionUnavailableLabel: document.querySelector("#discussion-unavailable-label"),
+    discussionUnavailableTitle: document.querySelector("#discussion-unavailable-title"),
     discussionUnavailableMessage: document.querySelector("#discussion-unavailable-message"),
     discussionOutline: document.querySelector("#discussion-outline"),
     sourceQuestionList: document.querySelector("#source-question-list"),
@@ -190,7 +220,6 @@
     duration: 0,
     playing: false,
     activeCue: null,
-    activeDisplayCue: null,
     discussionActive: false,
     discussionPhase: "outline",
     discussionQuestionIndex: 0,
@@ -354,9 +383,12 @@
   const renderTranscript = () => {
     const query = elements.transcriptSearch.value.trim().toLowerCase();
     const visible = state.cues.filter((cue) => !query || cue.text.toLowerCase().includes(query) || cue.translation.toLowerCase().includes(query));
+    const availability = state.context?.subtitleAvailability?.state;
     elements.transcriptStatus.textContent = state.context?.completeTimeline
       ? `${visible.length} 句字幕`
-      : `字幕仍在收集 · 当前 ${visible.length} 句`;
+      : availability === "unavailable"
+        ? "此视频没有可用英文字幕"
+        : `字幕仍在读取 · 当前 ${visible.length} 句`;
     elements.transcriptList.replaceChildren(...visible.map((cue) => {
       const button = document.createElement("button");
       button.className = "transcript-row";
@@ -382,15 +414,15 @@
   };
 
   const syncCurrentCue = () => {
-    const nextDisplayCue = Core.cueAt(state.displayCues, state.currentTime);
-    const nextCue = Core.cueAt(state.cues, state.currentTime) || nextDisplayCue;
+    const semanticCue = Core.cueAt(state.cues, state.currentTime);
+    const displayCue = Core.cueAt(state.displayCues, state.currentTime);
+    const nextCue = semanticCue || displayCue;
     if (
-      nextDisplayCue?.start === state.activeDisplayCue?.start
-      && nextCue?.start === state.activeCue?.start
+      nextCue?.start === state.activeCue?.start
+      && nextCue?.text === state.activeCue?.text
     ) return;
-    state.activeDisplayCue = nextDisplayCue;
     state.activeCue = nextCue;
-    const nextText = String(nextDisplayCue?.text || "").trim();
+    const nextText = String(nextCue?.text || "").trim();
     elements.currentSentence.textContent = nextText;
     elements.currentSentenceContainer.hidden = !nextText;
     syncCueSelection();
@@ -481,6 +513,36 @@
     renderDiscussionOutline();
   };
 
+  const renderAnalysisStatus = ({ title, message, retryLabel = "重试分析" }) => {
+    elements.analysisLoading.hidden = true;
+    elements.analysisContent.hidden = true;
+    elements.analysisError.hidden = false;
+    elements.analysisErrorTitle.textContent = title;
+    elements.analysisErrorMessage.textContent = message;
+    elements.retryAnalysis.textContent = retryLabel;
+  };
+
+  const renderSubtitlePending = (message = "正在从当前视频读取英文字幕；字幕准备好后会自动开始分析。") => {
+    renderAnalysisStatus({
+      title: "正在读取英文字幕",
+      message,
+      retryLabel: "重新检测",
+    });
+  };
+
+  const renderSubtitleUnavailable = ({ message = "" } = {}) => {
+    const availability = state.context?.subtitleAvailability || {};
+    const explicit = availability.state === "unavailable";
+    const loginHint = availability.needsLogin ? " 如果你尚未登录当前网站，可登录后重新检测。" : "";
+    renderAnalysisStatus({
+      title: explicit ? "此视频没有可用英文字幕" : "还没有读取到英文字幕",
+      message: message || (explicit
+        ? `当前网站没有为这个视频返回可用的英文字幕，因此暂时无法生成材料分析。${loginHint}`
+        : "请确认视频已开始播放并选择英文字幕，然后重新检测。"),
+      retryLabel: "重新检测",
+    });
+  };
+
   const applyLearningContext = (response) => {
     state.context = response;
     state.duration = Math.max(
@@ -492,8 +554,8 @@
     state.currentTime = Number(response.video?.currentTime) || state.currentTime || 0;
     state.cues = Core.normalizeCues(response.cues, state.duration);
     state.displayCues = Core.normalizeCues(response.displayCues || response.cues, state.duration);
-    elements.title.textContent = response.video?.title || "YouTube 视频";
-    elements.author.textContent = response.video?.author || "YouTube";
+    elements.title.textContent = response.video?.title || "学习视频";
+    elements.author.textContent = response.video?.author || response.site?.name || "Video";
     renderCueRail();
     renderTranscript();
     renderDiscussionOutline();
@@ -504,9 +566,10 @@
   const waitForMoreLearningCues = async () => {
     if (previewMode || state.contextRetrying) return;
     state.contextRetrying = true;
+    renderSubtitlePending();
     let lastContextError = "";
-    for (let attempt = 0; attempt < 60 && !state.destroyed; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    for (let attempt = 0; attempt < 20 && !state.destroyed; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 500));
       if (state.destroyed) break;
       const response = await sendMessage({ type: "GET_LEARNING_CONTEXT" });
       if (!response?.ok) {
@@ -515,8 +578,17 @@
         continue;
       }
       const nextCues = Core.normalizeCues(response.cues, Number(response.video?.duration) || Number.POSITIVE_INFINITY);
-      if (nextCues.length > state.cues.length || Boolean(response.completeTimeline) !== Boolean(state.context?.completeTimeline)) {
+      if (
+        nextCues.length > state.cues.length
+        || Boolean(response.completeTimeline) !== Boolean(state.context?.completeTimeline)
+        || response.subtitleAvailability?.state !== state.context?.subtitleAvailability?.state
+      ) {
         applyLearningContext(response);
+      }
+      if (response.subtitleAvailability?.state === "unavailable") {
+        state.contextRetrying = false;
+        renderSubtitleUnavailable();
+        return;
       }
       if (response.completeTimeline && nextCues.length >= 3) {
         state.contextRetrying = false;
@@ -530,11 +602,7 @@
       await loadAnalysis({ allowPartial: true });
       return;
     }
-    renderUnavailableAnalysis({
-      assessmentStatus: "pending",
-      reasonCode: "transcript_incomplete",
-      summary: lastContextError || "字幕仍未收集完整，当前不推荐使用这份材料生成课程。",
-    });
+    renderSubtitleUnavailable({ message: lastContextError });
   };
 
   const analysisCacheKey = () => `learning-analysis:v6:${state.context?.video?.id || "unknown"}:${Core.transcriptHash(state.cues)}:${elements.learnerLevel.value}`;
@@ -575,36 +643,29 @@
   };
 
   const renderUnavailableAnalysis = ({
-    assessmentStatus = "failed",
-    reasonCode = "analysis_unavailable",
-    summary = "分析未完成，当前不推荐使用这份材料生成课程。",
+    summary = "AI 分析暂时不可用，请稍后重试。",
   } = {}) => {
-    const fallback = Core.createFallbackAnalysis({
-      cues: state.cues,
-      duration: state.duration,
-      learnerLevel: elements.learnerLevel.value,
+    state.analysis = null;
+    renderAnalysisStatus({
+      title: "AI 分析未完成",
+      message: summary,
+      retryLabel: "重试分析",
     });
-    fallback.suitability.assessmentStatus = assessmentStatus;
-    fallback.suitability.reasonCodes = [reasonCode];
-    fallback.suitability.summary = summary;
-    fallback.suitability.diagnostics.transcriptComplete = Boolean(state.context?.completeTimeline);
-    state.analysis = Core.sanitizeAnalysis(fallback, {
-      cues: state.cues,
-      duration: state.duration,
-      learnerLevel: elements.learnerLevel.value,
-      videoTitle: state.context?.video?.title,
-    });
-    renderAnalysis(state.analysis);
+    renderDiscussionOutline();
   };
 
   const loadAnalysis = async ({ force = false, allowPartial = false } = {}) => {
+    if (!state.context?.completeTimeline && !allowPartial) {
+      if (state.context?.subtitleAvailability?.state === "unavailable") renderSubtitleUnavailable();
+      else {
+        renderSubtitlePending();
+        waitForMoreLearningCues();
+      }
+      return;
+    }
     elements.analysisLoading.hidden = false;
     elements.analysisError.hidden = true;
     elements.analysisContent.hidden = true;
-    if (!previewMode && !state.context?.completeTimeline && !allowPartial) {
-      waitForMoreLearningCues();
-      return;
-    }
     try {
       if (state.cues.length < 3) throw new Error("字幕仍在准备，收集到足够内容后会自动分析");
       let raw = null;
@@ -632,11 +693,8 @@
       saveAnalysisToHistory(state.analysis).catch(() => undefined);
     } catch (error) {
       renderUnavailableAnalysis({
-        assessmentStatus: state.context?.completeTimeline ? "failed" : "pending",
-        reasonCode: state.context?.completeTimeline ? "analysis_unavailable" : "transcript_incomplete",
-        summary: error?.message || "分析未完成，当前不推荐使用这份材料生成课程。",
+        summary: error?.message || "AI 分析暂时不可用，请稍后重试。",
       });
-      if (!state.context?.completeTimeline) waitForMoreLearningCues();
     }
   };
 
@@ -671,16 +729,15 @@
 
   const getDiscussionPlan = () => {
     if (state.analysis?.suitability?.finalRecommendation !== "intensive_study") return [];
-    const fallback = Core.createDiscussionQuestions(state.context?.video?.title, state.cues);
-    const questions = state.analysis?.discussionQuestions || fallback;
+    const questions = state.analysis?.discussionQuestions || { source: [], advanced: [] };
     const planItem = (question, type) => ({
       type,
       text: String(typeof question === "string" ? question : question?.text || "").trim(),
       evidence: Array.isArray(question?.evidence) ? question.evidence : [],
     });
     return [
-      ...(questions.source || fallback.source).map((question) => planItem(question, "source")),
-      ...(questions.advanced || fallback.advanced).map((question) => planItem(question, "advanced")),
+      ...(questions.source || []).map((question) => planItem(question, "source")),
+      ...(questions.advanced || []).map((question) => planItem(question, "advanced")),
     ].filter((item) => item.text && item.evidence.length);
   };
 
@@ -720,12 +777,25 @@
 
   const renderDiscussionOutline = () => {
     const recommendation = state.analysis?.suitability?.finalRecommendation;
-    const discussionAvailable = recommendation === "intensive_study";
-    elements.discussionUnavailable.hidden = discussionAvailable || !state.analysis;
-    if (!discussionAvailable && state.analysis) {
-      elements.discussionUnavailableMessage.textContent = recommendation === "extensive_viewing"
-        ? "这份材料更适合泛看，不生成完整讨论课。"
-        : "当前建议是不推荐学习，仍可继续观看或查看字幕。";
+    const subtitleUnavailable = state.context?.subtitleAvailability?.state === "unavailable";
+    const questions = state.analysis?.discussionQuestions || { source: [], advanced: [] };
+    state.discussionPlan = getDiscussionPlan();
+    const discussionAvailable = !subtitleUnavailable
+      && recommendation === "intensive_study"
+      && state.discussionPlan.length > 0;
+    elements.discussionUnavailable.hidden = discussionAvailable;
+    if (!discussionAvailable) {
+      elements.discussionUnavailableLabel.textContent = subtitleUnavailable ? "字幕不可用" : "讨论暂不可用";
+      elements.discussionUnavailableTitle.textContent = subtitleUnavailable
+        ? "此视频没有可用英文字幕"
+        : state.analysis ? "这份材料不生成讨论课" : "讨论尚未准备好";
+      elements.discussionUnavailableMessage.textContent = subtitleUnavailable
+        ? "没有字幕证据，无法生成可靠的讨论问题。"
+        : recommendation === "extensive_viewing"
+          ? "这份材料更适合泛看，不生成完整讨论课。"
+          : state.analysis
+            ? "当前学习建议不是精学，仍可继续观看或查看字幕。"
+            : "字幕和材料分析完成后，讨论提纲会在这里出现。";
       elements.discussionOutline.hidden = true;
       elements.discussionStartActions.hidden = true;
       elements.discussionSession.hidden = true;
@@ -737,11 +807,9 @@
     }
     elements.discussionOutline.hidden = false;
     elements.discussionStartActions.hidden = false;
-    const fallback = Core.createDiscussionQuestions(state.context?.video?.title, state.cues);
-    const questions = state.analysis?.discussionQuestions || fallback;
-    state.discussionPlan = getDiscussionPlan();
-    renderQuestionList(elements.sourceQuestionList, questions.source || fallback.source);
-    renderQuestionList(elements.advancedQuestionList, questions.advanced || fallback.advanced);
+    const groundedQuestions = (items) => (items || []).filter((question) => Array.isArray(question?.evidence) && question.evidence.length);
+    renderQuestionList(elements.sourceQuestionList, groundedQuestions(questions.source));
+    renderQuestionList(elements.advancedQuestionList, groundedQuestions(questions.advanced));
     elements.discussionSessionQuestionList.replaceChildren(...state.discussionPlan.map((question, index) => {
       const item = document.createElement("li");
       item.textContent = `${index + 1}. ${question.text}`;
@@ -935,28 +1003,37 @@
       ? await readExtensionStorage("sync", { learnerLevel: "B1" })
       : { learnerLevel: "B1" };
     elements.learnerLevel.value = Core.sanitizeLevel(storedLevel.learnerLevel, "B1").replace("+", "") || "B1";
-    let response = previewMode ? SAMPLE_CONTEXT : null;
+    let response = previewMode
+      ? (previewState === "no-subtitles" ? SAMPLE_UNAVAILABLE_CONTEXT : SAMPLE_CONTEXT)
+      : null;
     if (!previewMode) {
-      for (let attempt = 0; attempt < 20; attempt += 1) {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
         response = await sendMessage({ type: "GET_LEARNING_CONTEXT" });
-        if (!response?.ok || (response.cues?.length || 0) >= 3) break;
+        if (
+          !response?.ok
+          || (response.cues?.length || 0) >= 3
+          || response.subtitleAvailability?.state === "unavailable"
+        ) break;
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
     if (!response?.ok) {
       elements.analysisLoading.hidden = true;
       elements.analysisError.hidden = false;
-      elements.analysisErrorMessage.textContent = response?.error || "没有连接到可学习的 YouTube 视频。";
+      elements.analysisErrorMessage.textContent = response?.error || "没有连接到可学习的视频。";
       elements.title.textContent = "未连接视频";
       return;
     }
     applyLearningContext(response);
     if (hasExtensionApi && !embeddedMode && !previewMode) {
       try {
-        const nativeUrl = new URL(response.video?.url);
-        nativeUrl.searchParams.set("engram_learning", "1");
-        if (state.currentTime > 0) nativeUrl.searchParams.set("t", `${Math.floor(state.currentTime)}s`);
-        location.replace(nativeUrl.toString());
+        const nativeUrl = PST.buildLearningModeUrl?.(
+          response.video?.url,
+          state.currentTime,
+          response.site,
+        );
+        if (!nativeUrl) throw new Error("Unsupported learning site");
+        location.replace(nativeUrl);
         return;
       } catch {
         // The regular error state below remains available for malformed legacy links.
@@ -985,7 +1062,18 @@
     if (next) seekTo(next.start);
   });
   elements.transcriptSearch.addEventListener("input", renderTranscript);
-  elements.retryAnalysis.addEventListener("click", () => loadAnalysis({ force: true }));
+  elements.retryAnalysis.addEventListener("click", () => {
+    if (state.context?.completeTimeline) {
+      loadAnalysis({ force: true }).catch(showRuntimeError);
+      return;
+    }
+    if (previewMode) {
+      renderSubtitleUnavailable();
+      return;
+    }
+    state.contextRetrying = false;
+    waitForMoreLearningCues().catch(showRuntimeError);
+  });
   elements.refreshAnalysis.addEventListener("click", () => loadAnalysis({ force: true }));
   elements.learnerLevel.addEventListener("change", () => {
     (async () => {

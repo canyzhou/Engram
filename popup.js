@@ -147,7 +147,12 @@
     elements.connectionText.textContent = response?.ok
       ? t("connectedVideo", [response.site?.name || site.name, response.capture?.source || t("waitingForSubtitles")])
       : t("waitingForVideoPlayer", site.name);
-    elements.openLearningMode.disabled = !(response?.ok && (response.site?.id || site.id) === "youtube");
+    const learningAdapter = PST.getLearningSiteAdapter?.(response?.site?.id || site.id);
+    elements.openLearningMode.disabled = !(
+      response?.ok
+      && learningAdapter?.supportsLearningMode
+      && learningAdapter.isPlaybackPage(activeTabUrl)
+    );
   };
 
   elements.uiLanguage.addEventListener("change", async () => {
@@ -205,17 +210,12 @@
     }
     const context = await sendToTab({ type: "GET_LEARNING_CONTEXT" });
     const sourceUrl = context?.video?.url || activeTabUrl;
-    try {
-      const url = new URL(sourceUrl);
-      url.searchParams.set("engram_learning", "1");
-      const currentTime = Math.floor(Number(context?.video?.currentTime) || 0);
-      if (currentTime > 0) url.searchParams.set("t", `${currentTime}s`);
-      await chrome.tabs.create({ url: url.toString() });
-    } catch {
-      const videoId = context?.video?.id;
-      if (!videoId) return;
-      await chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&engram_learning=1` });
-    }
+    const learningUrl = PST.buildLearningModeUrl?.(
+      sourceUrl,
+      context?.video?.currentTime,
+      context?.site,
+    );
+    if (learningUrl) await chrome.tabs.create({ url: learningUrl });
   });
 
   storageGet().then((stored) => {

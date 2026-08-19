@@ -45,6 +45,7 @@ export const EXTENSION_FILES = [
   "src/dictionary.js",
   "src/i18n.js",
   "src/learning-history-core.js",
+  "src/learning-site-adapters.js",
   "src/learning-mode-core.js",
   "src/learning-workspace-page.css",
   "src/learning-workspace-shell.js",

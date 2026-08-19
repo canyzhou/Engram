@@ -21,6 +21,7 @@ test("builds a publishable extension without backend or env files", (context) =>
   assert.equal(existsSync(join(outputDirectory, "src", "service-worker.js")), true);
   assert.equal(existsSync(join(outputDirectory, "dashboard.html")), true);
   assert.equal(existsSync(join(outputDirectory, "src", "learning-history-core.js")), true);
+  assert.equal(existsSync(join(outputDirectory, "src", "learning-site-adapters.js")), true);
   assert.equal(existsSync(join(outputDirectory, "src", "player-settings.js")), true);
   assert.equal(existsSync(join(outputDirectory, "src", "dev-reload.js")), false);
   assert.equal(existsSync(join(outputDirectory, "server")), false);

@@ -68,7 +68,8 @@ const resolveVideoTabId = async () => {
 const resolveMessageVideoTabId = async (message, sender) => {
   const senderTabId = Number(sender?.tab?.id);
   const senderTabUrl = String(sender?.tab?.url || "");
-  if (Number.isInteger(senderTabId) && senderTabId > 0 && /^(?:https:\/\/)?(?:www\.)?youtube\.com\//i.test(senderTabUrl)) {
+  const senderIsLearningSite = /^(?:https:\/\/)?(?:(?:[\w-]+\.)?youtube(?:-nocookie)?\.com|youtu\.be)\//i.test(senderTabUrl);
+  if (Number.isInteger(senderTabId) && senderTabId > 0 && senderIsLearningSite) {
     return senderTabId;
   }
   const requested = Number(message?.sourceTabId);

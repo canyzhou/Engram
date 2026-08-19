@@ -68,6 +68,7 @@
       </ytd-page-manager>
     </ytd-app>
     <script src="../../src/namespace.js"></script>
+    <script src="../../src/learning-site-adapters.js"></script>
     <script src="../../src/learning-mode-core.js"></script>
     <script src="../../src/i18n.js?v=hover-lookup-1"></script>
     <script src="../../src/settings.js"></script>
@@ -180,6 +181,7 @@
       globalThis.qaOverlay = overlay;
       globalThis.qaPlayerSettings = playerSettings;
       if (new URLSearchParams(location.search).get("engram_learning") === "1") {
+        const semanticLoading = new URLSearchParams(location.search).get("semantic_loading") === "1";
         const workspaceVideo = document.querySelector("video");
         const mockPlayer = document.querySelector(".player");
         const syncMockPlayerWidth = () => {
@@ -221,12 +223,18 @@
           getURL: () => "about:blank",
         };
         globalThis.chrome = qaChrome;
-        const workspace = new PST.YouTubeLearningWorkspace({
+        const workspace = new PST.VideoLearningWorkspace({
+          siteAdapter: PST.getLearningSiteAdapter("youtube"),
           getContext: async () => ({
             ok: true,
             video: { title: "How to Film Cinematic Videos by Yourself", author: "Kyle Kotajarvi" },
-            cues: [
+            cues: semanticLoading ? [] : [
               { start: 25, end: 36, text: "It's just problem-solving within a limited set of constraints." },
+              { start: 37, end: 43, text: "Every choice has to support the story you want to tell." },
+            ],
+            displayCues: [
+              { start: 25, end: 30, text: "It's just problem-solving" },
+              { start: 30, end: 36, text: "within a limited set of constraints." },
               { start: 37, end: 43, text: "Every choice has to support the story you want to tell." },
             ],
           }),
@@ -255,6 +263,7 @@
           },
         });
         workspace.mount();
+        document.body.dataset.semanticLoading = String(semanticLoading);
         globalThis.qaLearningWorkspace = workspace;
       }
     </script>

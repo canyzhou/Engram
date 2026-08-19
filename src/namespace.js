@@ -1,7 +1,7 @@
 (() => {
   const root = globalThis.ParamountSubtitles || {};
 
-  root.VERSION = "0.6.4";
+  root.VERSION = "0.6.6";
   root.BRIDGE_SOURCE = "paramount-subtitle-page-bridge";
   root.CONTENT_SOURCE = "paramount-subtitle-content";
 

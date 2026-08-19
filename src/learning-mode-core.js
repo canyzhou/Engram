@@ -145,6 +145,7 @@
       };
     }
     const fallbackCue = normalizeCues(cues)[0] || null;
+    if (!fallbackCue) return { source: [], advanced: [] };
     return {
       source: [
         createGroundedQuestion(`What specific problem is the speaker trying to solve in “${title}”?`, fallbackCue),
@@ -189,7 +190,7 @@
         if (questions.length === 5) break;
         if (!questions.some((item) => item.text === question.text)) questions.push(question);
       }
-      return questions;
+      return questions.filter((question) => question.evidence.length).slice(0, 5);
     };
     return {
       source: sanitizeSet(input?.source, fallback.source),

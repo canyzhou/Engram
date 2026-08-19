@@ -59,7 +59,7 @@
     return {
       id,
       title: text(input.title, 180) || "未命名视频",
-      author: text(input.author, 120) || "YouTube",
+      author: text(input.author, 120) || "Video",
       url: text(input.url, 800),
       thumbnail: thumbnailFor(input),
       duration,

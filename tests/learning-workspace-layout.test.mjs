@@ -6,8 +6,9 @@ const css = readFileSync(new URL("../src/learning-workspace-page.css", import.me
 const shell = readFileSync(new URL("../src/learning-workspace-shell.js", import.meta.url), "utf8");
 const content = readFileSync(new URL("../src/content.js", import.meta.url), "utf8");
 
-test("learning layout reserves page space without repositioning YouTube player internals", () => {
+test("shared learning layout reserves page space without repositioning native player internals", () => {
   assert.match(css, /width:\s*calc\(100vw - var\(--engram-learning-panel-width\)\)/);
+  assert.match(css, /data-engram-learning-site="youtube"/);
   assert.match(css, /ytd-watch-flexy #columns[\s\S]*min-width:\s*0\s*!important/);
   assert.match(css, /padding:\s*88px 18px 212px/);
   assert.match(css, /ytd-watch-flexy #player-container-outer[\s\S]*width:\s*100%\s*!important[\s\S]*min-width:\s*0\s*!important[\s\S]*max-width:\s*100%\s*!important/);
@@ -21,7 +22,7 @@ test("learning panel resizes with the video layout and collapses below a thresho
   assert.match(shell, /class="panel-resizer" role="separator"/);
   assert.match(shell, /PANEL_COLLAPSE_THRESHOLD = 220/);
   assert.match(shell, /this\.setPanelWidth\(this\.panelResizeRawWidth, \{ preview: true \}\)/);
-  assert.match(shell, /requestPlayerLayout\(\)[\s\S]*requestAnimationFrame[\s\S]*window\.dispatchEvent\(new Event\("resize"\)\)/);
+  assert.match(shell, /requestPlayerLayout\(\)[\s\S]*requestAnimationFrame[\s\S]*this\.siteAdapter\?\.requestPlayerLayout\?\.\(window, document, this\.video\)/);
   assert.match(shell, /if \(Math\.abs\(nextWidth - previousWidth\) > \.5\) this\.requestPlayerLayout\(\)/);
   assert.match(shell, /if \(this\.panelResizeRawWidth <= PANEL_COLLAPSE_THRESHOLD\) this\.setPanelCollapsed\(true\)/);
   assert.match(shell, /class="panel-restore"[^>]*aria-label="展开学习面板"/);
@@ -46,14 +47,17 @@ test("learning workspace centers enlarged subtitles without a current-sentence l
   assert.match(shell, /height:\s*196px/);
   assert.match(shell, /font-size:\s*clamp\(18px, 1\.35vw, 22px\)/);
   assert.match(shell, /class="current" aria-live="polite" hidden><p><\/p>/);
+  assert.doesNotMatch(shell, /\.current p \{[^}]*line-clamp/);
   assert.doesNotMatch(shell, /<span>当前句<\/span>/);
 });
 
-test("learning workspace renders short display cues while keeping semantic sentence context", () => {
-  assert.match(shell, /this\.displayCues = context\.displayCues \|\| this\.cues/);
-  assert.match(shell, /const cue = PST\.LearningModeCore\.cueAt\(this\.displayCues, time\)/);
-  assert.match(shell, /const semanticCue = PST\.LearningModeCore\.cueAt\(this\.cues, time\) \|\| cue/);
-  assert.match(shell, /this\.activeCue = semanticCue/);
+test("learning workspace prefers semantic cues and uses display cues as a loading fallback", () => {
+  assert.match(shell, /const semanticCue = PST\.LearningModeCore\.cueAt\(this\.cues, time\)/);
+  assert.match(shell, /const displayCue = PST\.LearningModeCore\.cueAt\(this\.displayCues, time\)/);
+  assert.match(shell, /const cue = semanticCue \|\| displayCue/);
+  assert.match(shell, /this\.renderCurrentCue\(cue\)/);
+  assert.match(shell, /this\.activeCue = cue/);
+  assert.doesNotMatch(shell, /const cue = displayCue \|\| semanticCue/);
 });
 
 test("learning workspace hides the subtitle line when the current time has no cue", () => {

@@ -1196,7 +1196,13 @@
         this.networkGap.shouldHold(true);
         this.accept({ ...cue, source: cue.source || "WebVTT" });
       }
-      else if ((this.priorities[this.lastCue.source] || 0) <= 1 && this.lastCue.text) {
+      else if (
+        this.lastCue.text
+        && (
+          this.lastCue.source === this.timeline.preferredSource
+          || (this.priorities[this.lastCue.source] || 0) <= 1
+        )
+      ) {
         if (this.networkGap.shouldHold(false)) return;
         this.accept({ text: "", source: this.lastCue.source || "WebVTT" });
       } else {

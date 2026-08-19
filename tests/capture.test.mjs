@@ -427,13 +427,21 @@ test("ignores TextTrack fragments after the complete YouTube timeline is ready",
   assert.equal(accepted, 0);
 });
 
-test("exports a sorted, bounded learning context from the captured timeline", () => {
+test("keeps display cues for normal playback and exports semantic cues for learning mode", () => {
   const capture = new context.ParamountSubtitles.CaptureCoordinator();
   capture.dom.largestVideo = () => ({ video: { currentTime: 12, duration: 90, paused: false } });
   capture.timeline.cues.set("later", { start: 20, end: 23, text: "Later cue", source: "YouTube Captions" });
   capture.timeline.cues.set("first", { start: 5, end: 8, text: "First cue", source: "YouTube Captions" });
+  capture.timeline.semanticCues.set("complete", {
+    start: 5,
+    end: 23,
+    text: "First cue Later cue",
+    parts: ["First cue", "Later cue"],
+    source: "YouTube Captions",
+  });
 
   const learning = capture.learningContext();
+  assert.equal(capture.timeline.at(6)?.text, "First cue");
   assert.equal(learning.completeTimeline, true);
   assert.equal(learning.currentTime, 12);
   assert.equal(learning.duration, 90);
@@ -443,7 +451,6 @@ test("exports a sorted, bounded learning context from the captured timeline", ()
     { start: 20, text: "Later cue" },
   ]);
   assert.deepEqual([...learning.cues].map(({ start, text }) => ({ start, text })), [
-    { start: 5, text: "First cue" },
-    { start: 20, text: "Later cue" },
+    { start: 5, text: "First cue Later cue" },
   ]);
 });

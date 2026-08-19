@@ -10,18 +10,20 @@ html.pst-learning-mode body {
 
 html.pst-learning-mode {
   --engram-learning-panel-width: max(36vw, 390px);
+  --engram-learning-video-aspect: 1.7777778;
+  --engram-learning-video-height-ratio: .5625;
 }
 
-html.pst-learning-mode ytd-masthead,
-html.pst-learning-mode tp-yt-app-drawer,
-html.pst-learning-mode #guide,
-html.pst-learning-mode ytd-watch-flexy #below,
-html.pst-learning-mode ytd-watch-flexy #secondary,
-html.pst-learning-mode ytd-watch-flexy #chat-container,
-html.pst-learning-mode ytd-watch-flexy #comments,
-html.pst-learning-mode ytd-watch-flexy #related,
-html.pst-learning-mode ytd-watch-flexy #panels,
-html.pst-learning-mode ytd-watch-flexy #cinematics {
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-masthead,
+html.pst-learning-mode[data-engram-learning-site="youtube"] tp-yt-app-drawer,
+html.pst-learning-mode[data-engram-learning-site="youtube"] #guide,
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #below,
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #secondary,
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #chat-container,
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #comments,
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #related,
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #panels,
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #cinematics {
   display: none !important;
 }
 
@@ -31,24 +33,24 @@ html.pst-learning-mode ytd-watch-flexy #cinematics {
  * after playback starts can leave audio running while that layer goes black.
  * We therefore resize only YouTube's page-level layout around the player.
  */
-html.pst-learning-mode ytd-page-manager,
-html.pst-learning-mode ytd-watch-flexy {
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-page-manager,
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy {
   width: 100% !important;
   min-width: 0 !important;
   max-width: none !important;
 }
 
-html.pst-learning-mode ytd-app {
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-app {
   width: calc(100vw - var(--engram-learning-panel-width)) !important;
   min-width: 0 !important;
   max-width: none !important;
 }
 
-html.pst-learning-mode ytd-page-manager {
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-page-manager {
   margin-top: 0 !important;
 }
 
-html.pst-learning-mode ytd-watch-flexy #columns {
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #columns {
   display: block !important;
   width: 100% !important;
   min-width: 0 !important;
@@ -58,8 +60,8 @@ html.pst-learning-mode ytd-watch-flexy #columns {
   box-sizing: border-box !important;
 }
 
-html.pst-learning-mode ytd-watch-flexy #primary,
-html.pst-learning-mode ytd-watch-flexy #primary-inner {
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #primary,
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #primary-inner {
   width: 100% !important;
   min-width: 0 !important;
   max-width: none !important;
@@ -74,12 +76,17 @@ html.pst-learning-mode ytd-watch-flexy #primary-inner {
  * Keep the player nodes in their native flow, but let the outer sizing box
  * follow the width available to #primary.
  */
-html.pst-learning-mode ytd-watch-flexy #player-container-outer {
+html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #player-container-outer {
   width: 100% !important;
   min-width: 0 !important;
   max-width: 100% !important;
 }
 
+/*
+ * Site adapters expose a stable document key while each site keeps its native
+ * player. Only site-specific page chrome and sizing live in this stylesheet;
+ * the learning panel, subtitle dock, and interactions remain shared.
+ */
 html.pst-learning-mode #pst-learning-panel {
   position: fixed !important;
   z-index: 2147483646 !important;
@@ -107,10 +114,10 @@ html.pst-learning-mode.pst-learning-panel-resizing body {
 }
 
 @media (max-width: 899px) {
-  html.pst-learning-mode ytd-app {
+  html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-app {
     width: 100vw !important;
   }
-  html.pst-learning-mode ytd-watch-flexy #columns {
+  html.pst-learning-mode[data-engram-learning-site="youtube"] ytd-watch-flexy #columns {
     padding: 70px 10px 0 !important;
   }
   html.pst-learning-mode #pst-learning-panel {
@@ -121,4 +128,5 @@ html.pst-learning-mode.pst-learning-panel-resizing body {
     border-left: 0 !important;
     border-top: 1px solid #242529 !important;
   }
+
 }

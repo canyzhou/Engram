@@ -194,6 +194,8 @@ learning-settings.*        高难词等级设置页
 preview.*                  本地视觉/交互预览
 src/page-bridge.js         页面主环境：YouTube 字幕轨、fetch/XHR/TextTrack 捕获
 src/capture.js             DOM/JSON3/timedtext/VTT/TTML 解析与采集协调
+src/learning-site-adapters.js  学习模式站点注册表：路由、元数据、播放器定位与原站链接
+src/learning-workspace-shell.js 通用学习工作区：播放器控制、字幕、生词与右侧分析面板
 src/translator.js          Chrome 本地、DeepSeek 与 Google 备用翻译
 src/overlay.js             Shadow DOM 双语字幕和词卡
 src/service-worker.js      翻译代理、语境查词、Google 备用和词典请求

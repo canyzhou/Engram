@@ -18,20 +18,15 @@
   let lastContextTime = null;
   let preparingFromInteraction = false;
   const videoSite = PST.detectVideoSite();
+  const learningSiteAdapter = PST.getLearningSiteAdapter?.(videoSite) || null;
 
-  const readVideoMetadata = () => {
-    const url = location.href;
-    let id = "";
-    try { id = new URL(url).searchParams.get("v") || ""; } catch {}
-    const title = document.querySelector("meta[name='title']")?.content
-      || document.querySelector("meta[property='og:title']")?.content
-      || document.title.replace(/\s*-\s*YouTube\s*$/i, "").trim()
-      || "YouTube video";
-    const author = document.querySelector("link[itemprop='name']")?.getAttribute("content")
-      || document.querySelector("#channel-name a, ytd-channel-name a")?.textContent?.trim()
-      || "YouTube";
-    return { id, title, author, url };
-  };
+  const readVideoMetadata = () => learningSiteAdapter?.readVideoMetadata?.(document, location) || ({
+    id: "",
+    title: document.querySelector("meta[property='og:title']")?.content || document.title || "Video",
+    author: videoSite.name,
+    thumbnail: document.querySelector("meta[property='og:image']")?.content || "",
+    url: location.href,
+  });
 
   const getLearningContext = () => {
     const learning = capture.learningContext();
@@ -46,6 +41,7 @@
     return {
       ok: true,
       completeTimeline: learning.completeTimeline,
+      subtitleAvailability: learning.subtitleAvailability,
       cues: learning.cues.map(translatedCue),
       displayCues: learning.displayCues.map(translatedCue),
       video: {
@@ -61,21 +57,8 @@
   const openLearningMode = () => {
     const context = getLearningContext();
     const sourceUrl = context.video?.url || location.href;
-    try {
-      const url = new URL(sourceUrl);
-      url.searchParams.set("engram_learning", "1");
-      const currentTime = Math.floor(Number(context.video?.currentTime) || 0);
-      if (currentTime > 0) url.searchParams.set("t", `${currentTime}s`);
-      window.open(url.toString(), "_blank", "noopener");
-    } catch {
-      const videoId = context.video?.id;
-      if (!videoId) return;
-      window.open(
-        `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&engram_learning=1`,
-        "_blank",
-        "noopener",
-      );
-    }
+    const learningUrl = learningSiteAdapter?.buildLearningUrl?.(sourceUrl, context.video?.currentTime);
+    if (learningUrl) window.open(learningUrl, "_blank", "noopener");
   };
 
   const playerSettings = videoSite.id === "youtube" && PST.YouTubePlayerSettings
@@ -98,11 +81,13 @@
     capture.start();
     const registration = await PST.safeSendMessage({ type: "REGISTER_VIDEO_TAB", site: videoSite });
     if (
-      videoSite.id === "youtube"
+      learningSiteAdapter?.supportsLearningMode
+      && learningSiteAdapter.isPlaybackPage(location)
       && new URLSearchParams(location.search).get("engram_learning") === "1"
-      && PST.YouTubeLearningWorkspace
+      && PST.VideoLearningWorkspace
     ) {
-      const workspace = new PST.YouTubeLearningWorkspace({
+      const workspace = new PST.VideoLearningWorkspace({
+        siteAdapter: learningSiteAdapter,
         getContext: async () => getLearningContext(),
         overlay,
         dictionary,
@@ -376,19 +361,19 @@
       return false;
     }
     if (message?.type === "GET_LEARNING_PLAYBACK") {
-      const video = document.querySelector("#movie_player video, video.html5-main-video, video");
+      const video = learningSiteAdapter?.findVideo?.(document) || document.querySelector("video");
       sendResponse(video ? {
         ok: true,
         currentTime: Number(video.currentTime) || 0,
         duration: Number(video.duration) || 0,
         paused: video.paused,
-      } : { ok: false, error: "未找到 YouTube 播放器" });
+      } : { ok: false, error: `未找到 ${videoSite.name} 播放器` });
       return false;
     }
     if (message?.type === "CONTROL_LEARNING_VIDEO") {
-      const video = document.querySelector("#movie_player video, video.html5-main-video, video");
+      const video = learningSiteAdapter?.findVideo?.(document) || document.querySelector("video");
       if (!video) {
-        sendResponse({ ok: false, error: "未找到 YouTube 播放器" });
+        sendResponse({ ok: false, error: `未找到 ${videoSite.name} 播放器` });
         return false;
       }
       const time = Number(message.time);

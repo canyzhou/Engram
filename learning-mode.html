@@ -84,7 +84,7 @@
               <p>正在分析字幕与学习价值…</p>
             </div>
             <div class="analysis-error" id="analysis-error" hidden>
-              <h2>AI 分析未完成</h2>
+              <h2 id="analysis-error-title">AI 分析未完成</h2>
               <p id="analysis-error-message">AI 没有返回完整结果，请重试或先查看字幕。</p>
               <div class="error-actions">
                 <button class="primary-button" id="retry-analysis" type="button">重试分析</button>
@@ -158,8 +158,8 @@
 
           <section class="tab-panel discussion-panel" id="panel-discussion" role="tabpanel" aria-labelledby="tab-discussion" hidden>
             <div class="discussion-unavailable" id="discussion-unavailable" hidden>
-              <span>讨论暂不可用</span>
-              <h2>这份材料不生成讨论课</h2>
+              <span id="discussion-unavailable-label">讨论暂不可用</span>
+              <h2 id="discussion-unavailable-title">这份材料不生成讨论课</h2>
               <p id="discussion-unavailable-message">当前学习建议不是精学，仍可继续观看或查看字幕。</p>
               <button class="text-button" type="button" data-switch-tab="analysis">查看学习建议</button>
             </div>
@@ -225,6 +225,7 @@
       </section>
     </main>
     <script src="src/namespace.js?v=5"></script>
+    <script src="src/learning-site-adapters.js?v=1"></script>
     <script src="src/learning-mode-core.js?v=7"></script>
     <script src="src/learning-history-core.js?v=1"></script>
     <script src="learning-mode.js?v=7"></script>

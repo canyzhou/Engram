@@ -40,7 +40,10 @@ test("analysis presents one combined learning recommendation with grounded contr
   assert.match(script, /transcriptComplete/);
   assert.match(script, /response\.completeTimeline && nextCues\.length >= 3/);
   assert.match(script, /allowPartial = false/);
-  assert.match(script, /字幕仍未收集完整，当前不推荐使用这份材料生成课程/);
+  assert.match(html, /id="analysis-error-title"/);
+  assert.match(script, /"此视频没有可用英文字幕"/);
+  assert.match(script, /当前网站没有为这个视频返回可用的英文字幕/);
+  assert.doesNotMatch(script, /字幕仍未收集完整，当前不推荐/);
   assert.doesNotMatch(html, /合适在哪|fit-verdict|fit-reasons|analysis-coverage|难度时间轴|最值得带走|id="start-learning"|开始 \d+ 分钟学习/);
   assert.doesNotMatch(script, /startLearning|startLabel/);
   assert.match(script, /elements\.refreshAnalysis\.addEventListener\("click", \(\) => loadAnalysis\(\{ force: true \}\)\)/);
@@ -53,8 +56,20 @@ test("analysis presents one combined learning recommendation with grounded contr
 test("automatic subtitle completion reuses cached analysis while explicit refresh bypasses it", () => {
   assert.match(script, /response\.completeTimeline[\s\S]*?loadAnalysis\(\{ allowPartial: false \}\)/);
   assert.match(script, /state\.cues\.length >= 3[\s\S]*?loadAnalysis\(\{ allowPartial: true \}\)/);
-  assert.match(script, /retryAnalysis\.addEventListener\("click", \(\) => loadAnalysis\(\{ force: true \}\)\)/);
+  assert.match(script, /retryAnalysis\.addEventListener\("click"[\s\S]*?state\.context\?\.completeTimeline[\s\S]*?loadAnalysis\(\{ force: true \}\)/);
+  assert.match(script, /waitForMoreLearningCues\(\)\.catch\(showRuntimeError\)/);
   assert.match(script, /refreshAnalysis\.addEventListener\("click", \(\) => loadAnalysis\(\{ force: true \}\)\)/);
+});
+
+test("missing subtitles render a dedicated status instead of a fake material recommendation", () => {
+  assert.match(script, /subtitleAvailability\?\.state === "unavailable"/);
+  assert.match(script, /renderSubtitleUnavailable/);
+  assert.match(script, /renderSubtitlePending/);
+  assert.match(script, /previewState === "no-subtitles"/);
+  assert.doesNotMatch(script, /fallback\.suitability\.assessmentStatus/);
+  assert.match(html, /id="discussion-unavailable-title"/);
+  assert.match(script, /没有字幕证据，无法生成可靠的讨论问题/);
+  assert.doesNotMatch(script, /const fallback = Core\.createDiscussionQuestions/);
 });
 
 test("discussion tab previews a lesson outline before the guided session", () => {
@@ -69,6 +84,7 @@ test("discussion tab previews a lesson outline before the guided session", () =>
   assert.match(script, /evidence: Array\.isArray\(question\?\.evidence\)/);
   assert.match(script, /item\.text && item\.evidence\.length/);
   assert.match(script, /recommendation === "intensive_study"/);
+  assert.match(script, /state\.discussionPlan\.length > 0/);
   assert.match(script, /这份材料更适合泛看，不生成完整讨论课/);
   assert.doesNotMatch(html, /data-discussion-mode/);
 });
@@ -87,11 +103,14 @@ test("current subtitle stays hidden when playback is between cues", () => {
   assert.doesNotMatch(`${html}\n${script}`, /当前时间点没有字幕|字幕准备好后，会在这里跟随播放/);
 });
 
-test("learning mode separates display cues from semantic transcript cues", () => {
-  assert.match(script, /state\.displayCues = Core\.normalizeCues\(response\.displayCues \|\| response\.cues/);
-  assert.match(script, /const nextDisplayCue = Core\.cueAt\(state\.displayCues, state\.currentTime\)/);
-  assert.match(script, /const nextCue = Core\.cueAt\(state\.cues, state\.currentTime\) \|\| nextDisplayCue/);
-  assert.match(script, /const nextText = String\(nextDisplayCue\?\.text \|\| ""\)\.trim\(\)/);
+test("learning mode prefers semantic cues and falls back while they are loading", () => {
+  assert.match(script, /displayCues:\s*\[[\s\S]*I think it's going to be[\s\S]*roughly 8 hours/);
+  assert.match(script, /const visible = state\.cues\.filter/);
+  assert.match(script, /const semanticCue = Core\.cueAt\(state\.cues, state\.currentTime\)/);
+  assert.match(script, /const displayCue = Core\.cueAt\(state\.displayCues, state\.currentTime\)/);
+  assert.match(script, /const nextCue = semanticCue \|\| displayCue/);
+  assert.match(script, /const nextText = String\(nextCue\?\.text \|\| ""\)\.trim\(\)/);
+  assert.doesNotMatch(script, /const nextCue = displayCue \|\| semanticCue/);
 });
 
 test("standalone learning mode omits sentence looping", () => {

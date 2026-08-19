@@ -52,7 +52,7 @@
     :host([data-panel-collapsed="true"]) .panel-resizer { display: none; }
     :host([data-panel-collapsed="true"]) .panel-restore { display: inline-flex; }
     .current { display: flex; min-width: 0; align-items: center; justify-content: center; padding: 0 clamp(24px, 5vw, 72px) 8px; text-align: center; }
-    .current p { display: -webkit-box; max-width: 1040px; margin: 0; overflow: hidden; color: #f2f0ec; font-size: clamp(18px, 1.35vw, 22px); font-weight: 560; line-height: 1.45; text-wrap: balance; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+    .current p { max-width: 1040px; margin: 0; color: #f2f0ec; font-size: clamp(18px, 1.35vw, 22px); font-weight: 560; line-height: 1.45; overflow-wrap: anywhere; text-wrap: balance; }
     .word { display: inline; padding: 0 .05em; border-radius: 3px; cursor: help; transition: color 120ms ease, background 120ms ease, box-shadow 120ms ease; }
     .word:hover, .word:focus-visible { background: rgba(240,163,58,.12); box-shadow: inset 0 -2px 0 #f0a33a; color: #ffbd61; outline: none; }
     .word-tooltip-bridge { position: fixed; z-index: 3; pointer-events: none; }
@@ -124,8 +124,9 @@
     }
   `;
 
-  class YouTubeLearningWorkspace {
-    constructor({ getContext, overlay, dictionary, getSettings, onAddWord }) {
+  class VideoLearningWorkspace {
+    constructor({ siteAdapter, getContext, overlay, dictionary, getSettings, onAddWord }) {
+      this.siteAdapter = siteAdapter || PST.getLearningSiteAdapter?.(PST.detectVideoSite?.()) || null;
       this.getContext = getContext;
       this.overlay = overlay;
       this.dictionary = dictionary || overlay?.dictionary || null;
@@ -164,6 +165,10 @@
         this.syncPlayerState();
         this.syncCue();
       };
+      this.handleVideoMetadata = () => {
+        this.syncVideoAspectRatio();
+        this.handleTimeUpdate();
+      };
       this.handlePlayerStateChange = () => this.syncPlayerState();
       this.handleViewportResize = () => {
         if (!this.panelCollapsed && window.innerWidth > 899) this.setPanelWidth(this.panelWidth);
@@ -175,8 +180,9 @@
     }
 
     async mount(sourceTabId) {
-      if (!this.isActive() || this.host) return;
+      if (!this.isActive() || this.host || !this.siteAdapter?.supportsLearningMode) return;
       document.documentElement.classList.add("pst-learning-mode");
+      document.documentElement.dataset.engramLearningSite = this.siteAdapter.id;
       if (this.overlay?.host) this.overlay.host.style.display = "none";
       this.host = document.createElement("div");
       this.host.id = "pst-learning-workspace";
@@ -297,10 +303,7 @@
       if (this.playerLayoutFrame) return;
       this.playerLayoutFrame = window.requestAnimationFrame(() => {
         this.playerLayoutFrame = 0;
-        // YouTube sizes the native player from its window resize path. The
-        // learning panel changes only the page shell width, so notify that
-        // path after the new CSS width has been applied.
-        window.dispatchEvent(new Event("resize"));
+        this.siteAdapter?.requestPlayerLayout?.(window, document, this.video);
       });
     }
 
@@ -377,23 +380,34 @@
     }
 
     bindPlayer() {
-      const nextVideo = document.querySelector("#movie_player video, video.html5-main-video");
+      const nextVideo = this.siteAdapter?.findVideo?.(document) || null;
       if (!nextVideo || nextVideo === this.video) return;
       this.unbindPlayerEvents();
       this.video = nextVideo;
       this.video.addEventListener("timeupdate", this.handleTimeUpdate);
-      this.video.addEventListener("loadedmetadata", this.handleTimeUpdate);
+      this.video.addEventListener("loadedmetadata", this.handleVideoMetadata);
+      this.video.addEventListener("resize", this.handleVideoMetadata);
       for (const event of ["durationchange", "play", "pause", "ended", "ratechange", "volumechange"]) {
         this.video.addEventListener(event, this.handlePlayerStateChange);
       }
+      this.syncVideoAspectRatio();
       this.syncPlayerState();
       this.syncCue();
+    }
+
+    syncVideoAspectRatio() {
+      const ratio = Number(this.siteAdapter?.getVideoAspectRatio?.(this.video));
+      if (!Number.isFinite(ratio) || ratio <= 0) return;
+      document.documentElement.style.setProperty("--engram-learning-video-aspect", String(ratio));
+      document.documentElement.style.setProperty("--engram-learning-video-height-ratio", String(1 / ratio));
+      this.requestPlayerLayout();
     }
 
     unbindPlayerEvents() {
       if (!this.video) return;
       this.video.removeEventListener("timeupdate", this.handleTimeUpdate);
-      this.video.removeEventListener("loadedmetadata", this.handleTimeUpdate);
+      this.video.removeEventListener("loadedmetadata", this.handleVideoMetadata);
+      this.video.removeEventListener("resize", this.handleVideoMetadata);
       for (const event of ["durationchange", "play", "pause", "ended", "ratechange", "volumechange"]) {
         this.video.removeEventListener(event, this.handlePlayerStateChange);
       }
@@ -886,8 +900,8 @@
       this.context = context;
       this.cues = context.cues || [];
       this.displayCues = context.displayCues || this.cues;
-      this.shadow.querySelector(".heading h1").textContent = context.video?.title || "YouTube 视频";
-      this.shadow.querySelector(".heading p").textContent = context.video?.author || "YouTube";
+      this.shadow.querySelector(".heading h1").textContent = context.video?.title || `${this.siteAdapter?.name || "Video"} 视频`;
+      this.shadow.querySelector(".heading p").textContent = context.video?.author || this.siteAdapter?.name || "Video";
       this.syncPlayerState();
       this.syncCue();
       if (!this.historyInitialized) {
@@ -899,8 +913,9 @@
     syncCue() {
       if (!this.shadow) return;
       const time = Number(this.video?.currentTime) || 0;
-      const cue = PST.LearningModeCore.cueAt(this.displayCues, time);
-      const semanticCue = PST.LearningModeCore.cueAt(this.cues, time) || cue;
+      const semanticCue = PST.LearningModeCore.cueAt(this.cues, time);
+      const displayCue = PST.LearningModeCore.cueAt(this.displayCues, time);
+      const cue = semanticCue || displayCue;
       const settings = this.getSettings?.() || {};
       const cueKey = [
         cue?.start ?? "",
@@ -911,7 +926,7 @@
         this.renderedCueKey = cueKey;
         this.renderCurrentCue(cue);
       }
-      this.activeCue = semanticCue;
+      this.activeCue = cue;
     }
 
     exit() {
@@ -934,6 +949,7 @@
       if (this.playerLayoutFrame) cancelAnimationFrame(this.playerLayoutFrame);
       this.playerLayoutFrame = 0;
       document.documentElement.classList.remove("pst-learning-mode", "pst-learning-panel-collapsed", "pst-learning-panel-resizing");
+      delete document.documentElement.dataset.engramLearningSite;
       document.documentElement.style.removeProperty("--engram-learning-panel-width");
       if (this.overlay?.host) this.overlay.host.style.removeProperty("display");
       this.frame?.remove();
@@ -942,5 +958,6 @@
     }
   }
 
-  PST.YouTubeLearningWorkspace = YouTubeLearningWorkspace;
+  PST.VideoLearningWorkspace = VideoLearningWorkspace;
+  PST.YouTubeLearningWorkspace = VideoLearningWorkspace;
 })();
